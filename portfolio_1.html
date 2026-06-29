@@ -288,23 +288,41 @@ td.r{text-align:right}
   <!-- 股票圖表區 -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:14px">
     <div class="chart-card">
-      <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between">
+      <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
         <span>月度損益</span>
-        <select id="monthChartRange" onchange="renderStockCharts()" style="padding:3px 7px;background:var(--s2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:10px;outline:none">
-          <option value="6">近 6 個月</option>
-          <option value="12">近 12 個月</option>
-          <option value="all">全部</option>
-        </select>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <!-- 已實現/未實現 切換 -->
+          <div style="display:flex;align-items:center;gap:5px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:3px 7px">
+            <span style="font-size:10px;color:var(--muted)">含未實現</span>
+            <div id="unrealToggle" onclick="toggleUnrealInChart()" style="width:30px;height:16px;background:var(--s3);border-radius:8px;cursor:pointer;position:relative;transition:background .2s">
+              <div id="unrealToggleDot" style="width:12px;height:12px;background:var(--muted);border-radius:50%;position:absolute;top:2px;left:2px;transition:all .2s"></div>
+            </div>
+          </div>
+          <select id="monthChartRange" onchange="renderStockCharts()" style="padding:3px 7px;background:var(--s2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:10px;outline:none">
+            <option value="6">近 6 個月</option>
+            <option value="12">近 12 個月</option>
+            <option value="all">全部</option>
+          </select>
+        </div>
       </div>
       <div class="chart-wrap"><canvas id="skMonthChart"></canvas></div>
     </div>
     <div class="chart-card">
-      <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between">
+      <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
         <span>個股損益排行</span>
-        <select id="symChartFilter" onchange="renderStockCharts()" style="padding:3px 7px;background:var(--s2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:10px;outline:none">
-          <option value="net">淨損益</option>
-          <option value="pct">報酬率%</option>
-        </select>
+        <div style="display:flex;align-items:center;gap:6px">
+          <!-- 已實現/含未實現 切換 -->
+          <div style="display:flex;align-items:center;gap:5px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:3px 7px">
+            <span style="font-size:10px;color:var(--muted)">含未實現</span>
+            <div id="symUnrealToggle" onclick="toggleSymUnreal()" style="width:30px;height:16px;background:var(--s3);border-radius:8px;cursor:pointer;position:relative;transition:background .2s">
+              <div id="symUnrealToggleDot" style="width:12px;height:12px;background:var(--muted);border-radius:50%;position:absolute;top:2px;left:2px;transition:all .2s"></div>
+            </div>
+          </div>
+          <select id="symChartFilter" onchange="renderStockCharts()" style="padding:3px 7px;background:var(--s2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:10px;outline:none">
+            <option value="net">淨損益</option>
+            <option value="pct">報酬率%</option>
+          </select>
+        </div>
       </div>
       <div class="chart-wrap tall"><canvas id="skSymChart"></canvas></div>
     </div>
@@ -1509,7 +1527,12 @@ function renderUnrealChart(){
     const mv = h.qty * p;
     const unreal = h.qty * (p - h.avgCost);
     const pct = (p - h.avgCost) / h.avgCost * 100;
-    return {...h, mv, unreal, pct};
+    // 計算持有天數（從最早買進那筆算起）
+    const myTrades = trades.filter(t=>t[1]===h.sym && t[2]==='買進').sort((a,b)=>a[0].localeCompare(b[0]));
+    const avgDays = myTrades.length > 0
+      ? Math.floor((new Date() - new Date(myTrades[0][0].replace(/\//g,'-'))) / (1000*60*60*24))
+      : 0;
+    return {...h, mv, unreal, pct, avgDays};
   }).sort((a,b) => b[sortBy] - a[sortBy]);
 
   if(!rows.length){
@@ -1661,53 +1684,81 @@ function renderHoldingsTable(){
   if(holdingView==='chart') renderUnrealChart();
 }
 
+// ── 圖表開關狀態 ──
+let showUnrealInMonth = false;
+let showUnrealInSym = false;
+
+function toggleUnrealInChart(){
+  showUnrealInMonth = !showUnrealInMonth;
+  const toggle = document.getElementById('unrealToggle');
+  const dot = document.getElementById('unrealToggleDot');
+  if(toggle) toggle.style.background = showUnrealInMonth ? 'var(--blue)' : 'var(--s3)';
+  if(dot){ dot.style.left = showUnrealInMonth ? '16px' : '2px'; dot.style.background = showUnrealInMonth ? '#fff' : 'var(--muted)'; }
+  renderStockCharts();
+}
+
+function toggleSymUnreal(){
+  showUnrealInSym = !showUnrealInSym;
+  const toggle = document.getElementById('symUnrealToggle');
+  const dot = document.getElementById('symUnrealToggleDot');
+  if(toggle) toggle.style.background = showUnrealInSym ? 'var(--blue)' : 'var(--s3)';
+  if(dot){ dot.style.left = showUnrealInSym ? '16px' : '2px'; dot.style.background = showUnrealInSym ? '#fff' : 'var(--muted)'; }
+  renderStockCharts();
+}
+
 // ── 股票圖表 ──
 function renderStockCharts(){
-  // 月度損益圖 + 累積折線
-  const range=document.getElementById('monthChartRange')?.value||'6';
-  const mMap={};
-  realizedList.forEach(r=>{const m=r.date.substring(0,7);mMap[m]=(mMap[m]||0)+r.net;});
-  let mKeys=Object.keys(mMap).sort();
+  // ── 月度損益圖 ──
+  const range = document.getElementById('monthChartRange')?.value || '6';
+  const mMap = {};
+  realizedList.forEach(r=>{ const m=r.date.substring(0,7); mMap[m]=(mMap[m]||0)+r.net; });
+
+  // 若開啟「含未實現」，把每月的未實現變化也算進去（用買進月份）
+  if(showUnrealInMonth){
+    Object.values(holdings).forEach(h=>{
+      const unreal = h.qty * ((h.currentPrice||h.avgCost) - h.avgCost);
+      // 找最後一筆買進的月份
+      const myTrades = trades.filter(t=>t[1]===h.sym && t[2]==='買進').sort((a,b)=>b[0].localeCompare(a[0]));
+      if(myTrades.length > 0){
+        const m = myTrades[0][0].substring(0,7);
+        mMap[m] = (mMap[m]||0) + unreal;
+      }
+    });
+  }
+
+  let mKeys = Object.keys(mMap).sort();
   if(range==='6') mKeys=mKeys.slice(-6);
   else if(range==='12') mKeys=mKeys.slice(-12);
-  const mVals=mKeys.map(k=>mMap[k]);
-  // 累積損益
+  const mVals = mKeys.map(k=>mMap[k]);
   let cum=0;
-  const cumVals=mVals.map(v=>{cum+=v;return cum;});
+  const cumVals = mVals.map(v=>{cum+=v;return cum;});
 
   if(charts.skMonth) charts.skMonth.destroy();
-  const skMonthCtx=document.getElementById('skMonthChart');
-  if(skMonthCtx) charts.skMonth=new Chart(skMonthCtx,{
+  const skMonthCtx = document.getElementById('skMonthChart');
+  if(skMonthCtx) charts.skMonth = new Chart(skMonthCtx,{
     type:'bar',
     data:{
-      labels:mKeys.length?mKeys:['尚無資料'],
+      labels: mKeys.length ? mKeys : ['尚無資料'],
       datasets:[
         {
-          type:'bar',
-          label:'月損益',
-          data:mVals,
-          backgroundColor:mVals.map(v=>v>=0?'rgba(34,197,94,.5)':'rgba(239,68,68,.5)'),
-          borderColor:mVals.map(v=>v>=0?'#22c55e':'#ef4444'),
-          borderWidth:1,borderRadius:4,
-          yAxisID:'y'
+          type:'bar', label: showUnrealInMonth?'已實現+未實現':'月損益',
+          data: mVals,
+          backgroundColor: mVals.map(v=>v>=0?'rgba(34,197,94,.5)':'rgba(239,68,68,.5)'),
+          borderColor: mVals.map(v=>v>=0?'#22c55e':'#ef4444'),
+          borderWidth:1, borderRadius:4, yAxisID:'y'
         },
         {
-          type:'line',
-          label:'累積損益',
-          data:cumVals,
+          type:'line', label:'累積',
+          data: cumVals,
           borderColor:'#3b82f6',
-          backgroundColor:'rgba(59,130,246,.1)',
-          borderWidth:2,
-          pointRadius:3,
-          pointBackgroundColor:'#3b82f6',
-          fill:false,
-          tension:0.3,
-          yAxisID:'y2'
+          backgroundColor:'rgba(59,130,246,.08)',
+          borderWidth:2, pointRadius:3, pointBackgroundColor:'#3b82f6',
+          fill:false, tension:0.3, yAxisID:'y2'
         }
       ]
     },
     options:{
-      responsive:true,maintainAspectRatio:false,
+      responsive:true, maintainAspectRatio:false,
       plugins:{
         legend:{position:'bottom',labels:{color:'#71717a',font:{size:10},padding:8,boxWidth:10}},
         tooltip:{callbacks:{label:ctx=>' '+fmtTWD(ctx.raw)}}
@@ -1720,34 +1771,60 @@ function renderStockCharts(){
     }
   });
 
-  // 個股損益圖
-  const mode=document.getElementById('symChartFilter')?.value||'net';
-  const symMap={};
+  // ── 個股損益排行 ──
+  const mode = document.getElementById('symChartFilter')?.value || 'net';
+  const symMap = {};
+
+  // 已實現
   realizedList.forEach(r=>{
-    if(!symMap[r.sym])symMap[r.sym]={net:0,cost:0};
-    symMap[r.sym].net+=r.net;
-    symMap[r.sym].cost+=r.buyAvg*r.qty;
+    if(!symMap[r.sym]) symMap[r.sym]={realized:0,unreal:0,cost:0,unrealPct:0};
+    symMap[r.sym].realized += r.net;
+    symMap[r.sym].cost += r.buyAvg * r.qty;
   });
-  const symData=Object.entries(symMap).map(([sym,d])=>({
-    label:getName(sym)||getCode(sym),
-    val:mode==='net'?d.net:(d.cost>0?d.net/d.cost*100:0)
-  })).sort((a,b)=>b.val-a.val);
+
+  // 若開啟「含未實現」，加入目前持倉的未實現
+  if(showUnrealInSym){
+    Object.values(holdings).forEach(h=>{
+      if(!symMap[h.sym]) symMap[h.sym]={realized:0,unreal:0,cost:0,unrealPct:0};
+      const unreal = h.qty * ((h.currentPrice||h.avgCost) - h.avgCost);
+      symMap[h.sym].unreal = unreal;
+      symMap[h.sym].unrealPct = (h.currentPrice||h.avgCost) > 0
+        ? ((h.currentPrice||h.avgCost) - h.avgCost) / h.avgCost * 100 : 0;
+    });
+  }
+
+  // 合併已實現+未實現的標的（可能只有其中一個）
+  const allSyms = new Set([
+    ...realizedList.map(r=>r.sym),
+    ...(showUnrealInSym ? Object.keys(holdings) : [])
+  ]);
+
+  const symData = [...allSyms].map(sym=>{
+    const d = symMap[sym] || {realized:0,unreal:0,cost:0};
+    const total = d.realized + (showUnrealInSym ? d.unreal : 0);
+    const totalPct = d.cost > 0 ? total/d.cost*100 : (d.unrealPct||0);
+    return { label: getName(sym)||getCode(sym), val: mode==='net'?total:totalPct, sym };
+  }).filter(d=>d.val!==0).sort((a,b)=>b.val-a.val);
+
   if(charts.skSym) charts.skSym.destroy();
-  const skSymCtx=document.getElementById('skSymChart');
-  if(skSymCtx) charts.skSym=new Chart(skSymCtx,{
+  const skSymCtx = document.getElementById('skSymChart');
+  if(skSymCtx) charts.skSym = new Chart(skSymCtx,{
     type:'bar',
     data:{
-      labels:symData.length?symData.map(d=>d.label):['尚無資料'],
+      labels: symData.length ? symData.map(d=>d.label) : ['尚無資料'],
       datasets:[{
-        data:symData.length?symData.map(d=>d.val):[0],
-        backgroundColor:symData.map(d=>d.val>=0?'rgba(34,197,94,.55)':'rgba(239,68,68,.55)'),
-        borderColor:symData.map(d=>d.val>=0?'#22c55e':'#ef4444'),
-        borderWidth:1,borderRadius:5
+        data: symData.length ? symData.map(d=>d.val) : [0],
+        backgroundColor: symData.map(d=>d.val>=0?'rgba(34,197,94,.55)':'rgba(239,68,68,.55)'),
+        borderColor: symData.map(d=>d.val>=0?'#22c55e':'#ef4444'),
+        borderWidth:1, borderRadius:5
       }]
     },
     options:{
-      indexAxis:'y',responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>mode==='net'?' '+fmtTWD(ctx.raw):' '+(ctx.raw>=0?'+':'')+ctx.raw.toFixed(2)+'%'}}},
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>mode==='net'?' '+fmtTWD(ctx.raw):' '+(ctx.raw>=0?'+':'')+ctx.raw.toFixed(2)+'%'}}
+      },
       scales:{
         x:{ticks:{color:'#71717a',font:{size:9},callback:v=>mode==='net'?(Math.abs(v)>=1000?Math.round(v/1000)+'K':v):v.toFixed(1)+'%'},grid:{color:'rgba(63,63,70,.4)'}},
         y:{ticks:{color:'#71717a',font:{size:10}},grid:{display:false}}
