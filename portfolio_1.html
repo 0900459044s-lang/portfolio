@@ -324,21 +324,44 @@ td.r{text-align:right}
     <div class="tbl-wrap">
       <div class="tbl-head">
         <span class="tbl-title">持倉明細</span>
-        <span class="neu" style="font-size:11px" id="holdingStatus"></span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="neu" style="font-size:11px" id="holdingStatus"></span>
+          <div style="display:flex;gap:4px;background:var(--s2);border:1px solid var(--border);border-radius:7px;padding:3px">
+            <button id="view-table" onclick="switchHoldingView('table')" style="padding:4px 10px;font-size:11px;font-weight:500;border:none;border-radius:5px;cursor:pointer;background:var(--blue);color:#fff;transition:all .15s">📋 表格</button>
+            <button id="view-chart" onclick="switchHoldingView('chart')" style="padding:4px 10px;font-size:11px;font-weight:500;border:none;border-radius:5px;cursor:pointer;background:transparent;color:var(--muted);transition:all .15s">📊 圖表</button>
+          </div>
+        </div>
       </div>
-      <div class="tbl-scroll"><table>
-        <thead><tr>
-          <th>股票</th>
-          <th class="sort-th" onclick="sortHoldings('qty')" style="text-align:right;cursor:pointer;user-select:none">持股 <span id="sort-qty"></span></th>
-          <th style="min-width:130px">成本 vs 現價</th>
-          <th class="sort-th" onclick="sortHoldings('mv')" style="text-align:right;cursor:pointer;user-select:none">市值/佔比 <span id="sort-mv">↓</span></th>
-          <th class="sort-th" onclick="sortHoldings('unreal')" style="text-align:right;cursor:pointer;user-select:none">未實現 <span id="sort-unreal"></span></th>
-          <th class="sort-th" onclick="sortHoldings('pct')" style="text-align:right;cursor:pointer;user-select:none">報酬% <span id="sort-pct"></span></th>
-          <th style="text-align:right">今日</th>
-          <th></th>
-        </tr></thead>
-        <tbody id="holdingsTbl"></tbody>
-      </table></div>
+
+      <!-- 表格視圖 -->
+      <div id="holding-table-view">
+        <div class="tbl-scroll"><table>
+          <thead><tr>
+            <th>股票</th>
+            <th class="sort-th" onclick="sortHoldings('qty')" style="text-align:right;cursor:pointer;user-select:none">持股 <span id="sort-qty"></span></th>
+            <th style="min-width:130px">成本 vs 現價</th>
+            <th class="sort-th" onclick="sortHoldings('mv')" style="text-align:right;cursor:pointer;user-select:none">市值/佔比 <span id="sort-mv">↓</span></th>
+            <th class="sort-th" onclick="sortHoldings('unreal')" style="text-align:right;cursor:pointer;user-select:none">未實現 <span id="sort-unreal"></span></th>
+            <th class="sort-th" onclick="sortHoldings('pct')" style="text-align:right;cursor:pointer;user-select:none">報酬% <span id="sort-pct"></span></th>
+            <th style="text-align:right">今日</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="holdingsTbl"></tbody>
+        </table></div>
+      </div>
+
+      <!-- 圖表視圖 -->
+      <div id="holding-chart-view" style="display:none;padding:16px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">
+          <span>未實現損益視覺化</span>
+          <select id="unrealChartSort" onchange="renderUnrealChart()" style="padding:4px 8px;background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;outline:none">
+            <option value="pct">依報酬率排序</option>
+            <option value="unreal">依損益金額排序</option>
+            <option value="mv">依市值排序</option>
+          </select>
+        </div>
+        <div id="unrealChartBody"></div>
+      </div>
     </div>
   </div>
 
@@ -1466,7 +1489,82 @@ function set(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
 function setPN(id,val){const el=document.getElementById(id);if(!el)return;el.textContent=(val>=0?'+':'')+fmtTWD(val);el.className='kpi-value '+(val>=0?'pos':'neg');}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
-// ── 排序狀態 ──
+// ── 持倉視圖切換 ──
+let holdingView = 'table';
+function switchHoldingView(view){
+  holdingView = view;
+  document.getElementById('holding-table-view').style.display = view==='table'?'block':'none';
+  document.getElementById('holding-chart-view').style.display = view==='chart'?'block':'none';
+  const tBtn=document.getElementById('view-table');
+  const cBtn=document.getElementById('view-chart');
+  if(tBtn){ tBtn.style.background=view==='table'?'var(--blue)':'transparent'; tBtn.style.color=view==='table'?'#fff':'var(--muted)'; }
+  if(cBtn){ cBtn.style.background=view==='chart'?'var(--blue)':'transparent'; cBtn.style.color=view==='chart'?'#fff':'var(--muted)'; }
+  if(view==='chart') renderUnrealChart();
+}
+
+function renderUnrealChart(){
+  const sortBy = document.getElementById('unrealChartSort')?.value || 'pct';
+  const rows = Object.values(holdings).map(h=>{
+    const p = h.currentPrice || h.avgCost;
+    const mv = h.qty * p;
+    const unreal = h.qty * (p - h.avgCost);
+    const pct = (p - h.avgCost) / h.avgCost * 100;
+    return {...h, mv, unreal, pct};
+  }).sort((a,b) => b[sortBy] - a[sortBy]);
+
+  if(!rows.length){
+    document.getElementById('unrealChartBody').innerHTML='<div style="text-align:center;padding:40px;color:var(--muted)">尚無持倉</div>';
+    return;
+  }
+
+  // 找最大絕對值當作基準 100%
+  const maxAbs = Math.max(...rows.map(h=>Math.abs(h.unreal)), 1);
+  const totalMV = rows.reduce((s,h)=>s+h.mv, 0);
+
+  document.getElementById('unrealChartBody').innerHTML = rows.map((h,i)=>{
+    const name = getName(h.sym)||getCode(h.sym);
+    const color = COLORS[i%COLORS.length];
+    const isPos = h.unreal >= 0;
+    const barW = Math.abs(h.unreal) / maxAbs * 100;
+    const barColor = isPos ? 'var(--green)' : 'var(--red)';
+    const bgColor = isPos ? 'rgba(34,197,94,.06)' : 'rgba(239,68,68,.06)';
+    const conc = totalMV > 0 ? h.mv/totalMV*100 : 0;
+
+    return `<div style="margin-bottom:14px;padding:12px 14px;background:${bgColor};border-radius:9px;border:1px solid ${isPos?'rgba(34,197,94,.15)':'rgba(239,68,68,.15)'}">
+      <!-- 頂部：名稱 + 數字 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:24px;height:24px;border-radius:6px;background:${color};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff">${getCode(h.sym).slice(-2)}</div>
+          <div>
+            <div style="font-weight:600;font-size:12px">${name}</div>
+            <div style="font-size:10px;color:var(--muted)">${getCode(h.sym)} · 持有 ${h.avgDays||0}天 · 佔倉 ${conc.toFixed(1)}%</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:${barColor}">${(isPos?'+':'')+fmtTWD(h.unreal)}</div>
+          <div style="font-size:11px;color:${barColor}">${(isPos?'+':'')+h.pct.toFixed(2)}%</div>
+        </div>
+      </div>
+
+      <!-- 損益橫條 -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;height:8px;background:var(--s3);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${barW}%;background:${barColor};border-radius:4px;transition:width .6s cubic-bezier(.4,0,.2,1)"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;min-width:60px;text-align:right">
+          ${fmtTWD(h.mv)}
+        </div>
+      </div>
+
+      <!-- 成本/現價資訊 -->
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:6px">
+        <span>均成本 <strong style="color:var(--text)">${fmt2(h.avgCost)}</strong></span>
+        <span>現價 <strong style="color:${barColor}">${h.currentPrice?fmt2(h.currentPrice):'未取得'}</strong></span>
+        <span>持股 <strong style="color:var(--text)">${fmt(h.qty)} 股</strong></span>
+      </div>
+    </div>`;
+  }).join('');
+}
 let sortCol='mv', sortDir=-1; // 預設市值由大到小
 
 function sortHoldings(col){
@@ -1558,6 +1656,9 @@ function renderHoldingsTable(){
       <td><button class="btn-ghost" onclick="openTradeModal('${h.sym}')">＋</button></td>
     </tr>`;
   }).join(''):`<tr><td colspan="8"><div style="text-align:center;padding:40px;color:var(--muted)">尚無持倉</div></td></tr>`;
+
+  // 若目前是圖表視圖，同步更新
+  if(holdingView==='chart') renderUnrealChart();
 }
 
 // ── 股票圖表 ──
