@@ -194,6 +194,9 @@ td.r{text-align:right}
     </div>
   </div>
   <div class="hdr-r">
+    <span id="syncStatus" style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace">☁️ 初始化中...</span>
+    <button class="btn btn-secondary btn-sm" onclick="loadFromCloud()" title="從雲端載入最新資料">⬇️ 載入</button>
+    <button class="btn btn-secondary btn-sm" onclick="saveToCloud()" title="立即同步到雲端">☁️ 同步</button>
     <span id="priceStatus" style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--s2);border:1px solid var(--border);cursor:pointer" onclick="openSheetsSetup()">⚙️ 股票報價</span>
     <button class="btn btn-secondary btn-sm" onclick="refreshPrices()">🔄</button>
   </div>
@@ -282,51 +285,118 @@ td.r{text-align:right}
     <div class="kpi"><div class="kpi-label">今日損益</div><div class="kpi-value" id="sk-today">—</div><div class="kpi-sub neu">較昨收</div></div>
   </div>
 
-  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-    <button class="btn btn-primary btn-sm" onclick="openTradeModal()">＋ 新增交易</button>
-    <button class="btn btn-secondary btn-sm" onclick="showStockTab('holdings')">持倉</button>
-    <button class="btn btn-secondary btn-sm" onclick="showStockTab('trades')">交易記錄</button>
-    <button class="btn btn-secondary btn-sm" onclick="showStockTab('pnl')">已實現</button>
-    <button class="btn btn-secondary btn-sm" onclick="showStockTab('analysis')">個股分析</button>
+  <!-- 股票圖表區 -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:14px">
+    <div class="chart-card">
+      <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>月度損益</span>
+        <select id="monthChartRange" onchange="renderStockCharts()" style="padding:3px 7px;background:var(--s2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:10px;outline:none">
+          <option value="6">近 6 個月</option>
+          <option value="12">近 12 個月</option>
+          <option value="all">全部</option>
+        </select>
+      </div>
+      <div class="chart-wrap"><canvas id="skMonthChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>個股損益排行</span>
+        <select id="symChartFilter" onchange="renderStockCharts()" style="padding:3px 7px;background:var(--s2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:10px;outline:none">
+          <option value="net">淨損益</option>
+          <option value="pct">報酬率%</option>
+        </select>
+      </div>
+      <div class="chart-wrap tall"><canvas id="skSymChart"></canvas></div>
+    </div>
   </div>
 
+  <!-- Tab 按鈕 -->
+  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+    <button class="btn btn-primary btn-sm" onclick="openTradeModal()">＋ 新增交易</button>
+    <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
+    <button class="btn btn-secondary btn-sm" id="stab-holdings" onclick="showStockTab('holdings')">📊 持倉</button>
+    <button class="btn btn-secondary btn-sm" id="stab-txanalysis" onclick="showStockTab('txanalysis')">📋 交易分析</button>
+    <button class="btn btn-secondary btn-sm" id="stab-analysis" onclick="showStockTab('analysis')">🏷️ 個股統計</button>
+  </div>
+
+  <!-- 持倉明細（可排序）-->
   <div id="sk-holdings">
     <div class="tbl-wrap">
-      <div class="tbl-head"><span class="tbl-title">持倉明細</span><span class="neu" style="font-size:11px" id="holdingStatus"></span></div>
+      <div class="tbl-head">
+        <span class="tbl-title">持倉明細</span>
+        <span class="neu" style="font-size:11px" id="holdingStatus"></span>
+      </div>
       <div class="tbl-scroll"><table>
-        <thead><tr><th>股票</th><th>持股</th><th style="text-align:right">均成本</th><th style="text-align:right">現價</th><th style="text-align:right">市值</th><th style="text-align:right">未實現</th><th style="text-align:right">報酬%</th><th style="text-align:right">今日</th><th></th></tr></thead>
+        <thead><tr>
+          <th>股票</th>
+          <th class="sort-th" onclick="sortHoldings('qty')" style="text-align:right;cursor:pointer;user-select:none">持股 <span id="sort-qty"></span></th>
+          <th class="sort-th" onclick="sortHoldings('avgCost')" style="text-align:right;cursor:pointer;user-select:none">均成本 <span id="sort-avgCost"></span></th>
+          <th style="text-align:right">現價</th>
+          <th class="sort-th" onclick="sortHoldings('mv')" style="text-align:right;cursor:pointer;user-select:none">市值 <span id="sort-mv">↓</span></th>
+          <th class="sort-th" onclick="sortHoldings('unreal')" style="text-align:right;cursor:pointer;user-select:none">未實現 <span id="sort-unreal"></span></th>
+          <th class="sort-th" onclick="sortHoldings('pct')" style="text-align:right;cursor:pointer;user-select:none">報酬% <span id="sort-pct"></span></th>
+          <th style="text-align:right">今日</th>
+          <th></th>
+        </tr></thead>
         <tbody id="holdingsTbl"></tbody>
       </table></div>
     </div>
   </div>
 
-  <div id="sk-trades" style="display:none">
-    <div class="tbl-wrap">
-      <div style="display:flex;gap:7px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--s2);flex-wrap:wrap">
-        <select id="fSym" onchange="renderTrades()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none"><option value="">所有標的</option></select>
-        <select id="fAct" onchange="renderTrades()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none">
-          <option value="">買進+賣出</option><option value="買進">買進</option><option value="賣出">賣出</option>
-        </select>
-        <select id="fMonth" onchange="renderTrades()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none"><option value="">所有月份</option></select>
-        <span id="tradeCount" style="font-size:11px;color:var(--muted);margin-left:auto;align-self:center"></span>
+  <!-- 交易分析（已實現＋交易記錄合併）-->
+  <div id="sk-txanalysis" style="display:none">
+    <!-- 已實現損益 -->
+    <div class="tbl-wrap" style="margin-bottom:12px">
+      <div class="tbl-head">
+        <span class="tbl-title">💰 已實現損益（FIFO）</span>
+        <span id="pnlTotal" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700"></span>
+      </div>
+      <div style="display:flex;gap:7px;padding:9px 14px;border-bottom:1px solid var(--border);background:var(--s2);flex-wrap:wrap">
+        <select id="fPnlSym" onchange="renderTxAnalysis()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none"><option value="">所有標的</option></select>
+        <select id="fPnlMonth" onchange="renderTxAnalysis()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none"><option value="">所有月份</option></select>
+        <span id="pnlCount" style="font-size:11px;color:var(--muted);margin-left:auto;align-self:center"></span>
       </div>
       <div class="tbl-scroll"><table>
-        <thead><tr><th>日期</th><th>股票</th><th>類別</th><th style="text-align:right">股數</th><th style="text-align:right">成交價</th><th style="text-align:right">手續費</th><th style="text-align:right">稅</th><th style="text-align:right">總金額</th><th></th></tr></thead>
-        <tbody id="tradesTbl"></tbody>
-      </table></div>
-    </div>
-  </div>
-
-  <div id="sk-pnl" style="display:none">
-    <div class="tbl-wrap">
-      <div class="tbl-head"><span class="tbl-title">已實現損益（FIFO）</span><span id="pnlTotal" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700"></span></div>
-      <div class="tbl-scroll"><table>
-        <thead><tr><th>日期</th><th>股票</th><th style="text-align:right">股數</th><th style="text-align:right">賣出價</th><th style="text-align:right">買入均價</th><th style="text-align:right">毛損益</th><th style="text-align:right">費+稅</th><th style="text-align:right">淨損益</th></tr></thead>
+        <thead><tr>
+          <th>日期</th><th>股票</th>
+          <th style="text-align:right">股數</th>
+          <th style="text-align:right">賣出均價</th>
+          <th style="text-align:right">買入均價</th>
+          <th style="text-align:right">毛損益</th>
+          <th style="text-align:right">費+稅</th>
+          <th style="text-align:right">淨損益</th>
+          <th style="text-align:right">報酬%</th>
+        </tr></thead>
         <tbody id="pnlTbl"></tbody>
       </table></div>
     </div>
+
+    <!-- 原始交易記錄（可展開）-->
+    <div class="tbl-wrap">
+      <div class="tbl-head" onclick="toggleTradeLog()" style="cursor:pointer">
+        <span class="tbl-title">📋 原始交易記錄</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="tradeCount" style="font-size:11px;color:var(--muted)"></span>
+          <span id="tradeLogToggle" style="font-size:11px;color:var(--muted)">▶ 展開</span>
+        </div>
+      </div>
+      <div id="tradeLogBody" style="display:none">
+        <div style="display:flex;gap:7px;padding:9px 14px;border-bottom:1px solid var(--border);background:var(--s2);flex-wrap:wrap">
+          <select id="fSym" onchange="renderTxAnalysis()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none"><option value="">所有標的</option></select>
+          <select id="fAct" onchange="renderTxAnalysis()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none">
+            <option value="">買進+賣出</option><option value="買進">買進</option><option value="賣出">賣出</option>
+          </select>
+          <select id="fMonth" onchange="renderTxAnalysis()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none"><option value="">所有月份</option></select>
+        </div>
+        <div class="tbl-scroll"><table>
+          <thead><tr><th>日期</th><th>股票</th><th>類別</th><th style="text-align:right">股數</th><th style="text-align:right">成交價</th><th style="text-align:right">手續費</th><th style="text-align:right">稅</th><th style="text-align:right">總金額</th><th></th></tr></thead>
+          <tbody id="tradesTbl"></tbody>
+        </table></div>
+      </div>
+    </div>
   </div>
 
+  <!-- 個股統計 -->
   <div id="sk-analysis" style="display:none">
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px" id="analysisGrid"></div>
   </div>
@@ -530,13 +600,33 @@ td.r{text-align:right}
 </div>
 </div>
 
-<!-- Biz Income Modal -->
+<!-- Biz Income / Capital Modal -->
 <div class="overlay" id="bizIncomeModal">
 <div class="modal">
-  <h2>📅 記錄月收益</h2>
-  <div class="fg"><label>月份</label><input type="month" id="biMonth"></div>
+  <h2 id="biModalTitle">📅 記錄月收益</h2>
+  <div class="fg">
+    <label>記錄類型</label>
+    <select id="biType" onchange="onBiTypeChange()">
+      <option value="income">💰 月收益</option>
+      <option value="invest">➕ 增資（追加投入）</option>
+      <option value="withdraw">➖ 減資（出金）</option>
+    </select>
+  </div>
+  <div class="fg" id="biMonthGroup">
+    <label>月份</label><input type="month" id="biMonth">
+  </div>
   <div class="fg"><label>項目</label><select id="biProject"></select></div>
-  <div class="fg"><label>純益（TWD）</label><input type="number" id="biAmount" placeholder="0（虧損請輸入負數）"></div>
+  <div class="fg">
+    <label id="biAmountLabel">純益（TWD，虧損輸入負數）</label>
+    <input type="number" id="biAmount" placeholder="0">
+  </div>
+  <div class="fg" id="biBankGroup" style="display:none">
+    <label>連動帳戶（選填）</label>
+    <select id="biBankAccount">
+      <option value="">不連動銀行帳戶</option>
+    </select>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">選擇後會自動更新該帳戶餘額</div>
+  </div>
   <div class="fg"><label>備註</label><input type="text" id="biNote" placeholder="可選填"></div>
   <div class="mfooter">
     <button class="btn btn-secondary" onclick="closeModals()">取消</button>
@@ -552,17 +642,35 @@ td.r{text-align:right}
   <div class="fg-row">
     <div class="fg"><label>日期</label><input type="date" id="cfDate"></div>
     <div class="fg"><label>類型</label>
-      <select id="cfType"><option value="income">收入</option><option value="expense">支出</option></select>
+      <select id="cfType" onchange="onCfTypeChange()">
+        <option value="income">收入</option>
+        <option value="expense">支出</option>
+      </select>
     </div>
   </div>
   <div class="fg"><label>類別</label>
     <select id="cfCat">
-      <option value="salary">薪資</option><option value="invest">投資收益</option><option value="biz">生意收入</option>
-      <option value="food">飲食</option><option value="transport">交通</option><option value="rent">房租/貸款</option>
-      <option value="util">水電網路</option><option value="entertain">娛樂</option><option value="other">其他</option>
+      <option value="salary">薪資</option>
+      <option value="invest">投資收益</option>
+      <option value="biz">生意收入</option>
+      <option value="food">飲食</option>
+      <option value="transport">交通</option>
+      <option value="rent">房租/貸款</option>
+      <option value="util">水電網路</option>
+      <option value="entertain">娛樂</option>
+      <option value="other">其他</option>
     </select>
   </div>
   <div class="fg"><label>金額（TWD）</label><input type="number" id="cfAmount" min="0"></div>
+  <div class="fg">
+    <label id="cfBankLabel">連動帳戶（選填）</label>
+    <select id="cfBankAccount">
+      <option value="">不連動銀行帳戶</option>
+    </select>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">
+      收入 → 存入帳戶；支出 → 從帳戶扣款
+    </div>
+  </div>
   <div class="fg"><label>說明</label><input type="text" id="cfNote" placeholder="可選填"></div>
   <div class="mfooter">
     <button class="btn btn-secondary" onclick="closeModals()">取消</button>
@@ -885,84 +993,21 @@ function renderStocks(){
   set('sk-mv',fmtTWD(mv));set('sk-cost','成本 '+fmtTWD(cost));
   setPN('sk-unreal',unreal);
   const badge=document.getElementById('sk-pct');
-  badge.textContent=(pct>=0?'▲':'▼')+Math.abs(pct).toFixed(2)+'%';
-  badge.className='kpi-badge '+(pct>=0?'pos-bg':'neg-bg');
+  if(badge){badge.textContent=(pct>=0?'▲':'▼')+Math.abs(pct).toFixed(2)+'%';badge.className='kpi-badge '+(pct>=0?'pos-bg':'neg-bg');}
   setPN('sk-real',real);set('sk-realct',realizedList.length+' 筆');
   if(today!==0)setPN('sk-today',today);else set('sk-today','—');
 
-  // Holdings table
-  const rows=Object.values(holdings).sort((a,b)=>b.qty*(b.currentPrice||b.avgCost)-a.qty*(a.currentPrice||a.avgCost));
-  const totalMV=rows.reduce((s,h)=>s+h.qty*(h.currentPrice||h.avgCost),0);
-  document.getElementById('holdingStatus').textContent=rows.length+' 檔持倉';
-  document.getElementById('holdingsTbl').innerHTML=rows.length?rows.map((h,i)=>{
-    const p=h.currentPrice||h.avgCost,mv2=h.qty*p,pnl=h.qty*(p-h.avgCost),pct2=(p-h.avgCost)/h.avgCost*100;
-    const td=h.currentPrice&&h.prevClose?h.qty*(h.currentPrice-h.prevClose):null;
-    const name=getName(h.sym)||getCode(h.sym);
-    return `<tr>
-      <td><div style="display:flex;align-items:center;gap:7px">
-        <div class="stock-av" style="background:${COLORS[i%COLORS.length]}">${getCode(h.sym).slice(-2)}</div>
-        <div><div style="font-weight:600;font-size:12px">${name}</div><div style="font-size:10px;color:var(--muted)">${getCode(h.sym)} · ${getMarket(h.sym)}</div></div>
-      </div></td>
-      <td class="mono r">${fmt(h.qty)}</td>
-      <td class="mono r">${fmt2(h.avgCost)}</td>
-      <td class="mono r ${h.currentPrice&&h.prevClose?(h.currentPrice>=h.prevClose?'pos':'neg'):''}">${h.currentPrice?fmt2(h.currentPrice):'—'}</td>
-      <td class="mono r">${fmtTWD(mv2)}</td>
-      <td><span class="ptag ${pnl>=0?'ptag-pos':'ptag-neg'}">${(pnl>=0?'+':'')+fmtTWD(pnl)}</span></td>
-      <td class="mono r ${pct2>=0?'pos':'neg'}">${(pct2>=0?'+':'')+pct2.toFixed(2)}%</td>
-      <td class="mono r ${td!==null?(td>=0?'pos':'neg'):'neu'}">${td!==null?(td>=0?'+':'')+fmtTWD(td):'—'}</td>
-      <td><button class="btn-ghost" onclick="openTradeModal('${h.sym}')">＋</button></td>
-    </tr>`;
-  }).join(''):`<tr><td colspan="9"><div style="text-align:center;padding:40px;color:var(--muted)">尚無持倉</div></td></tr>`;
+  // 子功能渲染
+  renderHoldingsTable();
+  renderStockCharts();
+  renderTxAnalysis();
 
-  // Trades
-  const symSel=document.getElementById('fSym');const prev=symSel.value;
-  const allSyms=[...new Set(trades.map(t=>t[1]))].sort();
-  symSel.innerHTML='<option value="">所有標的</option>'+allSyms.map(s=>`<option value="${s}" ${s===prev?'selected':''}>${getName(s)||getCode(s)}</option>`).join('');
-  const mSel=document.getElementById('fMonth');const pm=mSel.value;
-  const allM=[...new Set(trades.map(t=>t[0].substring(0,7)))].sort().reverse();
-  mSel.innerHTML='<option value="">所有月份</option>'+allM.map(m=>`<option value="${m}" ${m===pm?'selected':''}>${m}</option>`).join('');
-  let ftrades=[...trades].sort((a,b)=>b[0].localeCompare(a[0]));
-  if(symSel.value)ftrades=ftrades.filter(t=>t[1]===symSel.value);
-  if(document.getElementById('fAct').value)ftrades=ftrades.filter(t=>t[2]===document.getElementById('fAct').value);
-  if(mSel.value)ftrades=ftrades.filter(t=>t[0].startsWith(mSel.value));
-  document.getElementById('tradeCount').textContent=ftrades.length+' 筆';
-  document.getElementById('tradesTbl').innerHTML=ftrades.map(t=>{
-    const[date,sym,action,qty,price,fee,tax]=t;
-    const total=action==='買進'?qty*price+fee:qty*price-fee-tax;
-    const idx=trades.indexOf(t);
-    const name=getName(sym)||getCode(sym);
-    return `<tr>
-      <td class="mono">${date}</td>
-      <td><div style="font-weight:600;font-size:12px">${name}</div><div style="font-size:10px;color:var(--muted)">${getCode(sym)}</div></td>
-      <td><span style="color:${action==='買進'?'var(--green)':'var(--red)'};font-weight:600">${action}</span></td>
-      <td class="mono r">${fmt(qty)}</td><td class="mono r">${fmt2(price)}</td>
-      <td class="mono r neu">${fmt(fee)}</td><td class="mono r neu">${fmt(tax)}</td>
-      <td class="mono r" style="font-weight:600">${fmtTWD(total)}</td>
-      <td><button class="btn-danger" onclick="deleteTrade(${idx})">✕</button></td>
-    </tr>`;
-  }).join('');
-
-  // Realized PnL
-  const ptotal=realizedList.reduce((s,r)=>s+r.net,0);
-  const ptEl=document.getElementById('pnlTotal');
-  ptEl.textContent=(ptotal>=0?'+':'')+fmtTWD(ptotal);ptEl.className=ptotal>=0?'pos':'neg';
-  document.getElementById('pnlTbl').innerHTML=[...realizedList].reverse().map(r=>{
-    const name=getName(r.sym)||getCode(r.sym);
-    return `<tr>
-      <td class="mono">${r.date}</td>
-      <td><div style="font-weight:600;font-size:12px">${name}</div><div style="font-size:10px;color:var(--muted)">${getCode(r.sym)}</div></td>
-      <td class="mono r">${fmt(r.qty)}</td><td class="mono r">${fmt2(r.sellPrice)}</td><td class="mono r">${fmt2(r.buyAvg)}</td>
-      <td class="mono r ${r.gross>=0?'pos':'neg'}">${(r.gross>=0?'+':'')+fmtTWD(r.gross)}</td>
-      <td class="mono r neu">${fmtTWD(r.allFees)}</td>
-      <td><span class="ptag ${r.net>=0?'ptag-pos':'ptag-neg'}">${(r.net>=0?'+':'')+fmtTWD(r.net)}</span></td>
-    </tr>`;
-  }).join('');
-
-  // Analysis
+  // 個股統計
   const symMap={};
   realizedList.forEach(r=>{if(!symMap[r.sym])symMap[r.sym]={sym:r.sym,net:0,trades:0,wins:0};symMap[r.sym].net+=r.net;symMap[r.sym].trades++;if(r.net>0)symMap[r.sym].wins++;});
   const sorted=Object.values(symMap).sort((a,b)=>b.net-a.net);
-  document.getElementById('analysisGrid').innerHTML=sorted.length?sorted.map(s=>{
+  const ag=document.getElementById('analysisGrid');
+  if(ag) ag.innerHTML=sorted.length?sorted.map(s=>{
     const wr=s.trades>0?s.wins/s.trades*100:0;const name=getName(s.sym)||getCode(s.sym);
     return `<div class="tbl-wrap" style="padding:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -977,6 +1022,7 @@ function renderStocks(){
     </div>`;
   }).join(''):'<div style="text-align:center;padding:40px;color:var(--muted)">尚無已實現記錄</div>';
 }
+
 
 // ── Bank ──
 function renderBank(){
@@ -1070,11 +1116,35 @@ function renderBiz(){
 }
 function deleteBizIncome(i){if(!confirm('確定刪除？'))return;bizIncome.splice(i,1);saveAll();renderAll();}
 
-function openCfModal(){document.getElementById('cfDate').value=new Date().toISOString().split('T')[0];document.getElementById('cfAmount').value='';document.getElementById('cfNote').value='';document.getElementById('cfModal').classList.add('open');}
+function onCfTypeChange(){
+  const type=document.getElementById('cfType').value;
+  const label=document.getElementById('cfBankLabel');
+  if(label) label.textContent=type==='income'?'存入哪個帳戶（選填）':'從哪個帳戶扣款（選填）';
+}
+
+function openCfModal(){
+  document.getElementById('cfDate').value=new Date().toISOString().split('T')[0];
+  document.getElementById('cfAmount').value='';
+  document.getElementById('cfNote').value='';
+  const bankSel=document.getElementById('cfBankAccount');
+  if(bankSel) bankSel.innerHTML='<option value="">不連動銀行帳戶</option>'+banks.map((b,i)=>`<option value="${i}">${b.name}（${fmtTWD(b.amount)}）</option>`).join('');
+  onCfTypeChange();
+  document.getElementById('cfModal').classList.add('open');
+}
 function saveCf(){
-  const amount=parseFloat(document.getElementById('cfAmount').value)||0;if(amount<=0){showToast('請填入金額');return;}
-  cashflows.push({date:document.getElementById('cfDate').value.replace(/-/g,'/'),type:document.getElementById('cfType').value,cat:document.getElementById('cfCat').value,amount,note:document.getElementById('cfNote').value.trim()});
-  saveAll();closeModals();renderAll();showToast('✅ 已記錄');
+  const amount=parseFloat(document.getElementById('cfAmount').value)||0;
+  if(amount<=0){showToast('請填入金額');return;}
+  const type=document.getElementById('cfType').value;
+  const bankIdx=document.getElementById('cfBankAccount')?.value;
+  cashflows.push({date:document.getElementById('cfDate').value.replace(/-/g,'/'),type,cat:document.getElementById('cfCat').value,amount,note:document.getElementById('cfNote').value.trim(),bankIdx:bankIdx||null});
+  if(bankIdx){
+    const bi=parseInt(bankIdx);
+    if(banks[bi]){
+      banks[bi].amount=type==='income'?(parseFloat(banks[bi].amount)||0)+amount:Math.max(0,(parseFloat(banks[bi].amount)||0)-amount);
+      showToast(`✅ 已記錄，${banks[bi].name} ${type==='income'?'+':'-'}${fmtTWD(amount)}`);
+    }
+  } else { showToast('✅ 已記錄'); }
+  saveAll();closeModals();renderAll();
 }
 function deleteCf(i){if(!confirm('確定刪除？'))return;cashflows.splice(i,1);saveAll();renderAll();}
 
@@ -1177,37 +1247,86 @@ function saveBiz(){
 }
 function deleteBizProject(i){if(!confirm('確定刪除？'))return;bizProjects.splice(i,1);saveAll();renderAll();}
 
-// ── Biz income modal ──
+// ── Biz income / capital modal ──
+function onBiTypeChange(){
+  const type=document.getElementById('biType').value;
+  const monthGrp=document.getElementById('biMonthGroup');
+  const bankGrp=document.getElementById('biBankGroup');
+  const amtLabel=document.getElementById('biAmountLabel');
+  const title=document.getElementById('biModalTitle');
+  if(type==='income'){
+    title.textContent='📅 記錄月收益';
+    monthGrp.style.display='block';
+    amtLabel.textContent='純益（TWD，虧損輸入負數）';
+    bankGrp.style.display='none';
+  } else if(type==='invest'){
+    title.textContent='➕ 追加投資';
+    monthGrp.style.display='none';
+    amtLabel.textContent='追加金額（TWD）';
+    bankGrp.style.display='block';
+  } else {
+    title.textContent='➖ 出金減資';
+    monthGrp.style.display='none';
+    amtLabel.textContent='出金金額（TWD）';
+    bankGrp.style.display='block';
+  }
+}
+
 function openBizIncomeModal(){
+  document.getElementById('biType').value='income';
   document.getElementById('biMonth').value=new Date().toISOString().substring(0,7);
   document.getElementById('biAmount').value='';
   document.getElementById('biNote').value='';
-  document.getElementById('biProject').innerHTML=bizProjects.length?bizProjects.map(p=>`<option value="${p.name}">${p.name}</option>`).join(''):'<option value="">請先新增項目</option>';
+  document.getElementById('biProject').innerHTML=bizProjects.length
+    ?bizProjects.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')
+    :'<option value="">請先新增項目</option>';
+  // Populate bank accounts
+  const bankSel=document.getElementById('biBankAccount');
+  bankSel.innerHTML='<option value="">不連動銀行帳戶</option>'+banks.map((b,i)=>`<option value="${i}">${b.name}（${fmtTWD(b.amount)}）</option>`).join('');
+  onBiTypeChange();
   document.getElementById('bizIncomeModal').classList.add('open');
 }
-function saveBizIncome(){
-  const month=document.getElementById('biMonth').value;
-  const project=document.getElementById('biProject').value;
-  if(!month||!project){showToast('請選擇月份和項目');return;}
-  bizIncome.push({month,project,amount:parseFloat(document.getElementById('biAmount').value)||0,note:document.getElementById('biNote').value.trim()});
-  saveAll();closeModals();renderAll();showToast('✅ 收益已記錄');
-}
-function deleteBizIncome(i){if(!confirm('確定刪除？'))return;bizIncome.splice(i,1);saveAll();renderAll();}
 
-// ── Cashflow modal ──
-function openCfModal(){
-  document.getElementById('cfDate').value=new Date().toISOString().split('T')[0];
-  document.getElementById('cfAmount').value='';
-  document.getElementById('cfNote').value='';
-  document.getElementById('cfModal').classList.add('open');
-}
-function saveCf(){
-  const amount=parseFloat(document.getElementById('cfAmount').value)||0;
-  if(amount<=0){showToast('請填入金額');return;}
-  cashflows.push({date:document.getElementById('cfDate').value.replace(/-/g,'/'),type:document.getElementById('cfType').value,cat:document.getElementById('cfCat').value,amount,note:document.getElementById('cfNote').value.trim()});
+function saveBizIncome(){
+  const type=document.getElementById('biType').value;
+  const project=document.getElementById('biProject').value;
+  const amount=parseFloat(document.getElementById('biAmount').value)||0;
+  const note=document.getElementById('biNote').value.trim();
+  const bankIdx=document.getElementById('biBankAccount').value;
+  if(!project){showToast('請選擇項目');return;}
+  if(amount===0){showToast('請填入金額');return;}
+
+  if(type==='income'){
+    const month=document.getElementById('biMonth').value;
+    if(!month){showToast('請選擇月份');return;}
+    bizIncome.push({type:'income',month,project,amount,note});
+  } else if(type==='invest'){
+    // 增資：更新本金
+    const projIdx=bizProjects.findIndex(p=>p.name===project);
+    if(projIdx>=0){
+      bizProjects[projIdx].invested=(parseFloat(bizProjects[projIdx].invested)||0)+amount;
+    }
+    bizIncome.push({type:'invest',month:new Date().toISOString().substring(0,7),project,amount,note:'[增資] '+(note||'')});
+    // 連動銀行：扣款
+    if(bankIdx!==''){
+      const bi=parseInt(bankIdx);
+      if(banks[bi]) banks[bi].amount=Math.max(0,(parseFloat(banks[bi].amount)||0)-amount);
+    }
+  } else {
+    // 減資：更新本金
+    const projIdx=bizProjects.findIndex(p=>p.name===project);
+    if(projIdx>=0){
+      bizProjects[projIdx].invested=Math.max(0,(parseFloat(bizProjects[projIdx].invested)||0)-amount);
+    }
+    bizIncome.push({type:'withdraw',month:new Date().toISOString().substring(0,7),project,amount:-Math.abs(amount),note:'[出金] '+(note||'')});
+    // 連動銀行：入金
+    if(bankIdx!==''){
+      const bi=parseInt(bankIdx);
+      if(banks[bi]) banks[bi].amount=(parseFloat(banks[bi].amount)||0)+Math.abs(amount);
+    }
+  }
   saveAll();closeModals();renderAll();showToast('✅ 已記錄');
 }
-function deleteCf(i){if(!confirm('確定刪除？'))return;cashflows.splice(i,1);saveAll();renderAll();}
 
 // ── Sheets modal ──
 function openSheetsSetup(){document.getElementById('sheetsUrl').value=SHEETS_URL;document.getElementById('sheetsModal').classList.add('open');}
@@ -1282,10 +1401,264 @@ function set(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
 function setPN(id,val){const el=document.getElementById(id);if(!el)return;el.textContent=(val>=0?'+':'')+fmtTWD(val);el.className='kpi-value '+(val>=0?'pos':'neg');}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
+// ── 排序狀態 ──
+let sortCol='mv', sortDir=-1; // 預設市值由大到小
+
+function sortHoldings(col){
+  if(sortCol===col) sortDir*=-1; else{sortCol=col;sortDir=-1;}
+  // 更新箭頭
+  ['qty','avgCost','mv','unreal','pct'].forEach(c=>{
+    const el=document.getElementById('sort-'+c);
+    if(el) el.textContent=c===col?(sortDir===-1?'↓':'↑'):'';
+  });
+  renderHoldingsTable();
+}
+
+function renderHoldingsTable(){
+  const rows=Object.values(holdings).map(h=>{
+    const p=h.currentPrice||h.avgCost;
+    const mv=h.qty*p;
+    const unreal=h.qty*(p-h.avgCost);
+    const pct=(p-h.avgCost)/h.avgCost*100;
+    return {...h,mv,unreal,pct};
+  });
+  rows.sort((a,b)=>{
+    let av=a[sortCol],bv=b[sortCol];
+    if(sortCol==='pct'){av=a.pct;bv=b.pct;}
+    return (av-bv)*sortDir;
+  });
+  const totalMV=rows.reduce((s,h)=>s+h.mv,0);
+  document.getElementById('holdingStatus').textContent=rows.length+' 檔持倉';
+  document.getElementById('holdingsTbl').innerHTML=rows.length?rows.map((h,i)=>{
+    const td=h.currentPrice&&h.prevClose?h.qty*(h.currentPrice-h.prevClose):null;
+    const name=getName(h.sym)||getCode(h.sym);
+    const color=COLORS[Object.keys(holdings).indexOf(h.sym)%COLORS.length];
+    return `<tr>
+      <td><div style="display:flex;align-items:center;gap:7px">
+        <div class="stock-av" style="background:${color};width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${getCode(h.sym).slice(-2)}</div>
+        <div><div style="font-weight:600;font-size:12px">${name}</div><div style="font-size:10px;color:var(--muted)">${getCode(h.sym)} · ${getMarket(h.sym)}</div></div>
+      </div></td>
+      <td class="mono r">${fmt(h.qty)}</td>
+      <td class="mono r">${fmt2(h.avgCost)}</td>
+      <td class="mono r ${h.currentPrice&&h.prevClose?(h.currentPrice>=h.prevClose?'pos':'neg'):''}">${h.currentPrice?fmt2(h.currentPrice):'—'}</td>
+      <td class="mono r">${fmtTWD(h.mv)}<div style="height:3px;background:var(--s3);border-radius:2px;margin-top:3px"><div style="height:100%;width:${totalMV>0?h.mv/totalMV*100:0}%;background:${color};border-radius:2px"></div></div></td>
+      <td><span class="ptag ${h.unreal>=0?'ptag-pos':'ptag-neg'}">${(h.unreal>=0?'+':'')+fmtTWD(h.unreal)}</span></td>
+      <td class="mono r ${h.pct>=0?'pos':'neg'}">${(h.pct>=0?'+':'')+h.pct.toFixed(2)}%</td>
+      <td class="mono r ${td!==null?(td>=0?'pos':'neg'):'neu'}">${td!==null?(td>=0?'+':'')+fmtTWD(td):'—'}</td>
+      <td><button class="btn-ghost" onclick="openTradeModal('${h.sym}')">＋</button></td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="9"><div style="text-align:center;padding:40px;color:var(--muted)">尚無持倉</div></td></tr>`;
+}
+
+// ── 股票圖表 ──
+function renderStockCharts(){
+  // 月度損益圖
+  const range=document.getElementById('monthChartRange')?.value||'6';
+  const mMap={};
+  realizedList.forEach(r=>{const m=r.date.substring(0,7);mMap[m]=(mMap[m]||0)+r.net;});
+  let mKeys=Object.keys(mMap).sort();
+  if(range==='6') mKeys=mKeys.slice(-6);
+  else if(range==='12') mKeys=mKeys.slice(-12);
+  const mVals=mKeys.map(k=>mMap[k]);
+  if(charts.skMonth) charts.skMonth.destroy();
+  const skMonthCtx=document.getElementById('skMonthChart');
+  if(skMonthCtx) charts.skMonth=new Chart(skMonthCtx,{
+    type:'bar',
+    data:{labels:mKeys,datasets:[{data:mVals,backgroundColor:mVals.map(v=>v>=0?'rgba(34,197,94,.55)':'rgba(239,68,68,.55)'),borderColor:mVals.map(v=>v>=0?'#22c55e':'#ef4444'),borderWidth:1,borderRadius:5}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+fmtTWD(ctx.raw)}}},scales:{x:{ticks:{color:'#71717a',font:{size:10},maxRotation:45},grid:{display:false}},y:{ticks:{color:'#71717a',font:{size:9},callback:v=>Math.abs(v)>=1000?Math.round(v/1000)+'K':v},grid:{color:'rgba(63,63,70,.4)'}}}}
+  });
+
+  // 個股損益圖
+  const mode=document.getElementById('symChartFilter')?.value||'net';
+  const symMap={};
+  realizedList.forEach(r=>{
+    if(!symMap[r.sym])symMap[r.sym]={net:0,cost:0};
+    symMap[r.sym].net+=r.net;
+    symMap[r.sym].cost+=r.buyAvg*r.qty;
+  });
+  const symData=Object.entries(symMap).map(([sym,d])=>({
+    label:getName(sym)||getCode(sym),
+    val:mode==='net'?d.net:(d.cost>0?d.net/d.cost*100:0)
+  })).sort((a,b)=>b.val-a.val);
+  if(charts.skSym) charts.skSym.destroy();
+  const skSymCtx=document.getElementById('skSymChart');
+  if(skSymCtx) charts.skSym=new Chart(skSymCtx,{
+    type:'bar',
+    data:{
+      labels:symData.map(d=>d.label),
+      datasets:[{data:symData.map(d=>d.val),backgroundColor:symData.map(d=>d.val>=0?'rgba(34,197,94,.55)':'rgba(239,68,68,.55)'),borderColor:symData.map(d=>d.val>=0?'#22c55e':'#ef4444'),borderWidth:1,borderRadius:5}]
+    },
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>mode==='net'?' '+fmtTWD(ctx.raw):' '+(ctx.raw>=0?'+':'')+ctx.raw.toFixed(2)+'%'}}},scales:{x:{ticks:{color:'#71717a',font:{size:9},callback:v=>mode==='net'?(Math.abs(v)>=1000?Math.round(v/1000)+'K':v):v.toFixed(1)+'%'},grid:{color:'rgba(63,63,70,.4)'}},y:{ticks:{color:'#71717a',font:{size:10}},grid:{display:false}}}}
+  });
+}
+
+// ── 交易分析（已實現＋交易記錄合併）──
+function renderTxAnalysis(){
+  // 填充篩選下拉
+  const pnlSymSel=document.getElementById('fPnlSym');
+  const pnlMonSel=document.getElementById('fPnlMonth');
+  if(pnlSymSel){
+    const prev=pnlSymSel.value;
+    const syms=[...new Set(realizedList.map(r=>r.sym))].sort();
+    pnlSymSel.innerHTML='<option value="">所有標的</option>'+syms.map(s=>`<option value="${s}" ${s===prev?'selected':''}>${getName(s)||getCode(s)}</option>`).join('');
+  }
+  if(pnlMonSel){
+    const prev=pnlMonSel.value;
+    const mons=[...new Set(realizedList.map(r=>r.date.substring(0,7)))].sort().reverse();
+    pnlMonSel.innerHTML='<option value="">所有月份</option>'+mons.map(m=>`<option value="${m}" ${m===prev?'selected':''}>${m}</option>`).join('');
+  }
+
+  // 篩選已實現
+  let filtPnl=[...realizedList].reverse();
+  const fPS=document.getElementById('fPnlSym')?.value;
+  const fPM=document.getElementById('fPnlMonth')?.value;
+  if(fPS) filtPnl=filtPnl.filter(r=>r.sym===fPS);
+  if(fPM) filtPnl=filtPnl.filter(r=>r.date.startsWith(fPM));
+  const filtTotal=filtPnl.reduce((s,r)=>s+r.net,0);
+  const ptEl=document.getElementById('pnlTotal');
+  if(ptEl){ptEl.textContent=(filtTotal>=0?'+':'')+fmtTWD(filtTotal);ptEl.className=filtTotal>=0?'pos':'neg';}
+  const pnlCt=document.getElementById('pnlCount');
+  if(pnlCt) pnlCt.textContent=filtPnl.length+' 筆';
+
+  document.getElementById('pnlTbl').innerHTML=filtPnl.length?filtPnl.map(r=>{
+    const name=getName(r.sym)||getCode(r.sym);
+    const retPct=r.buyAvg>0?(r.sellPrice-r.buyAvg)/r.buyAvg*100:0;
+    return `<tr>
+      <td class="mono">${r.date}</td>
+      <td><div style="font-weight:600;font-size:12px">${name}</div><div style="font-size:10px;color:var(--muted)">${getCode(r.sym)}</div></td>
+      <td class="mono r">${fmt(r.qty)}</td>
+      <td class="mono r">${fmt2(r.sellPrice)}</td>
+      <td class="mono r">${fmt2(r.buyAvg)}</td>
+      <td class="mono r ${r.gross>=0?'pos':'neg'}">${(r.gross>=0?'+':'')+fmtTWD(r.gross)}</td>
+      <td class="mono r neu">${fmtTWD(r.allFees)}</td>
+      <td><span class="ptag ${r.net>=0?'ptag-pos':'ptag-neg'}">${(r.net>=0?'+':'')+fmtTWD(r.net)}</span></td>
+      <td class="mono r ${retPct>=0?'pos':'neg'}">${(retPct>=0?'+':'')+retPct.toFixed(2)}%</td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="9"><div style="text-align:center;padding:32px;color:var(--muted)">尚無已實現記錄</div></td></tr>`;
+
+  // 交易記錄篩選
+  const symSel=document.getElementById('fSym');
+  const mSel=document.getElementById('fMonth');
+  if(symSel){
+    const prev=symSel.value;
+    const allSyms=[...new Set(trades.map(t=>t[1]))].sort();
+    symSel.innerHTML='<option value="">所有標的</option>'+allSyms.map(s=>`<option value="${s}" ${s===prev?'selected':''}>${getName(s)||getCode(s)}</option>`).join('');
+  }
+  if(mSel){
+    const prev=mSel.value;
+    const allM=[...new Set(trades.map(t=>t[0].substring(0,7)))].sort().reverse();
+    mSel.innerHTML='<option value="">所有月份</option>'+allM.map(m=>`<option value="${m}" ${m===prev?'selected':''}>${m}</option>`).join('');
+  }
+  let ftrades=[...trades].sort((a,b)=>b[0].localeCompare(a[0]));
+  if(symSel?.value) ftrades=ftrades.filter(t=>t[1]===symSel.value);
+  if(document.getElementById('fAct')?.value) ftrades=ftrades.filter(t=>t[2]===document.getElementById('fAct').value);
+  if(mSel?.value) ftrades=ftrades.filter(t=>t[0].startsWith(mSel.value));
+  const tc=document.getElementById('tradeCount');
+  if(tc) tc.textContent=ftrades.length+' 筆';
+  document.getElementById('tradesTbl').innerHTML=ftrades.map(t=>{
+    const[date,sym,action,qty,price,fee,tax]=t;
+    const total=action==='買進'?qty*price+fee:qty*price-fee-tax;
+    const idx=trades.indexOf(t);
+    const name=getName(sym)||getCode(sym);
+    return `<tr>
+      <td class="mono">${date}</td>
+      <td><div style="font-weight:600;font-size:12px">${name}</div><div style="font-size:10px;color:var(--muted)">${getCode(sym)}</div></td>
+      <td><span style="color:${action==='買進'?'var(--green)':'var(--red)'};font-weight:600">${action}</span></td>
+      <td class="mono r">${fmt(qty)}</td><td class="mono r">${fmt2(price)}</td>
+      <td class="mono r neu">${fmt(fee)}</td><td class="mono r neu">${fmt(tax)}</td>
+      <td class="mono r" style="font-weight:600">${fmtTWD(total)}</td>
+      <td><button class="btn-danger" onclick="deleteTrade(${idx})">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+
+let tradeLogOpen=false;
+function toggleTradeLog(){
+  tradeLogOpen=!tradeLogOpen;
+  const body=document.getElementById('tradeLogBody');
+  const toggle=document.getElementById('tradeLogToggle');
+  if(body) body.style.display=tradeLogOpen?'block':'none';
+  if(toggle) toggle.textContent=tradeLogOpen?'▼ 收合':'▶ 展開';
+}
+
+// ══════════════════════════════════════════
+// 跨裝置同步 — Google Apps Script Web App
+// ══════════════════════════════════════════
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwFRzN8WcOcp2AhzHZAn5-qdvD8d79hNZdw72Cw8tlX-bJ51RKUMAPdsXRvnMu_Wdrn/exec';
+
+// 從雲端載入資料
+async function loadFromCloud() {
+  try {
+    showSyncStatus('⏳ 從雲端載入...', 'var(--yellow)');
+    const r = await fetch(WEB_APP_URL + '?action=read', { cache: 'no-store' });
+    const res = await r.json();
+    if (res.ok && res.data) {
+      const d = res.data;
+      if (d.trades)      { trades      = d.trades;      localStorage.setItem('pf_trades_v3', JSON.stringify(trades)); }
+      if (d.banks)       { banks       = d.banks;        localStorage.setItem('pf_banks',     JSON.stringify(banks)); }
+      if (d.debts)       { debts       = d.debts;        localStorage.setItem('pf_debts',     JSON.stringify(debts)); }
+      if (d.bizProjects) { bizProjects = d.bizProjects;  localStorage.setItem('pf_biz',       JSON.stringify(bizProjects)); }
+      if (d.bizIncome)   { bizIncome   = d.bizIncome;    localStorage.setItem('pf_bizincome', JSON.stringify(bizIncome)); }
+      if (d.cashflows)   { cashflows   = d.cashflows;    localStorage.setItem('pf_cf',        JSON.stringify(cashflows)); }
+      computeAll();
+      renderAll();
+      showSyncStatus('✅ 已同步（' + (res.data.updatedAt || '—') + '）', 'var(--green)');
+      showToast('✅ 雲端資料載入完成');
+    } else {
+      showSyncStatus('☁️ 尚無雲端資料', 'var(--muted)');
+    }
+  } catch(e) {
+    showSyncStatus('⚠️ 無法連線雲端', 'var(--orange)');
+    console.warn('Cloud load error:', e);
+  }
+}
+
+// 儲存到雲端
+async function saveToCloud() {
+  try {
+    showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
+    const payload = {
+      action: 'write',
+      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+    };
+    const r = await fetch(WEB_APP_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    const res = await r.json();
+    if (res.ok) {
+      showSyncStatus('✅ 已同步雲端', 'var(--green)');
+      showToast('✅ 已同步到雲端，其他裝置可立即看到');
+    } else {
+      throw new Error(res.message);
+    }
+  } catch(e) {
+    showSyncStatus('❌ 同步失敗', 'var(--red)');
+    showToast('❌ 同步失敗：' + e.message);
+    console.warn('Cloud save error:', e);
+  }
+}
+
+function showSyncStatus(text, color) {
+  const el = document.getElementById('syncStatus');
+  if (el) { el.textContent = text; el.style.color = color || 'var(--muted)'; }
+}
+
+// 覆寫 saveAll，每次儲存同時同步雲端
+const _origSaveAll = saveAll;
+function saveAll() {
+  _origSaveAll();
+  saveToCloud(); // 非同步，不等待
+}
+
 // Boot
 computeAll();renderAll();
-if(SHEETS_URL)refreshPrices();
-else{document.getElementById('priceStatus').textContent='⚙️ 設定股票報價';document.getElementById('lastUpdate').textContent='載入完成';}
+// 優先載入雲端資料（如果有的話）
+loadFromCloud().then(() => {
+  if(SHEETS_URL) refreshPrices();
+  else { document.getElementById('priceStatus').textContent='⚙️ 設定股票報價'; }
+});
+if(!SHEETS_URL) document.getElementById('lastUpdate').textContent='載入完成';
 </script>
 </body>
 </html>
