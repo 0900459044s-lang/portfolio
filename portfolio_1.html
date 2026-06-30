@@ -1602,7 +1602,7 @@ function sortHoldings(col){
 
 function renderHoldingsTable(){
   const rows=Object.values(holdings).map(h=>{
-    const p=h.currentPrice||h.avgCost;
+    const p=h.currentPrice||h.prevClose||h.avgCost;
     const mv=h.qty*p;
     const unreal=h.qty*(p-h.avgCost);
     const pct=(p-h.avgCost)/h.avgCost*100;
@@ -1638,13 +1638,15 @@ function renderHoldingsTable(){
     const concentration=totalMV>0?h.mv/totalMV*100:0;
     const isConcentrated=concentration>30;
 
-    // 成本 vs 現價比較條
+    // 成本 vs 現價比較條（若無現價，fallback 用昨收估算）
     const costPrice=h.avgCost;
-    const curPrice=h.currentPrice||h.avgCost;
+    const hasLivePrice=!!h.currentPrice;
+    const curPrice=h.currentPrice||h.prevClose||h.avgCost;
     const barMax=Math.max(costPrice,curPrice)*1.05;
     const costW=costPrice/barMax*100;
     const curW=curPrice/barMax*100;
     const priceBarColor=curPrice>=costPrice?'var(--green)':'var(--red)';
+    const noLiveHint=!hasLivePrice ? ' <span style="color:var(--yellow);font-size:9px;cursor:help" title="目前無盤中成交價，可能為處置股（人工撮合）或暫無成交，已用昨收估算">⏳暫無成交</span>' : '';
 
     return `<tr style="${isConcentrated?'background:rgba(234,179,8,.04)':''}">
       <td>
@@ -1660,7 +1662,7 @@ function renderHoldingsTable(){
       <td class="r" style="min-width:120px">
         <div style="font-family:'JetBrains Mono',monospace;font-size:11px;margin-bottom:4px">
           <span style="color:var(--muted)">成本</span> ${fmt2(costPrice)}
-          <span style="color:${priceBarColor};margin-left:6px">現 ${h.currentPrice?fmt2(curPrice):'—'}</span>
+          <span style="color:${priceBarColor};margin-left:6px">現 ${hasLivePrice?fmt2(curPrice):(h.prevClose?fmt2(curPrice)+'(估)':'—')}</span>${noLiveHint}
         </div>
         <div style="position:relative;height:6px;background:var(--s3);border-radius:3px">
           <div style="position:absolute;left:0;top:0;height:100%;width:${costW}%;background:var(--muted2);border-radius:3px;opacity:.6"></div>
