@@ -97,6 +97,9 @@ td.r{text-align:right}
 .btn-ghost:hover{color:var(--text);background:var(--s2)}
 .btn-danger{background:transparent;border-color:transparent;color:var(--red);padding:4px 8px;font-size:11px}
 .btn-sm{padding:5px 10px;font-size:11px}
+.perf-range-btn{padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--s2);color:var(--muted);transition:all var(--tr)}
+.perf-range-btn:hover{background:var(--s3);color:var(--text)}
+.perf-range-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}
 
 /* Modal */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);z-index:200;align-items:center;justify-content:center;padding:16px}
@@ -278,6 +281,28 @@ td.r{text-align:right}
 
 <!-- ══ 股票頁 ══ -->
 <div class="page" id="page-stocks">
+  <!-- 投資組合表現卡片（Yahoo Finance 風格）-->
+  <div class="card" style="margin-bottom:14px;padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">投資組合表現</span>
+    </div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:800;letter-spacing:-.5px;margin:6px 0" id="perfTotalMV">—</div>
+    <div style="display:flex;flex-direction:column;gap:2px;margin-bottom:16px">
+      <div style="font-size:13px" id="perfTodayChange">—</div>
+      <div style="font-size:13px" id="perfRangeChange">—</div>
+    </div>
+    <div class="chart-wrap" style="height:180px;margin-bottom:12px"><canvas id="perfChart"></canvas></div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap" id="perfRangeButtons">
+      <button class="perf-range-btn" data-range="1d" onclick="setPerfRange('1d')">1天</button>
+      <button class="perf-range-btn" data-range="5d" onclick="setPerfRange('5d')">5天</button>
+      <button class="perf-range-btn" data-range="1m" onclick="setPerfRange('1m')">1個月</button>
+      <button class="perf-range-btn" data-range="6m" onclick="setPerfRange('6m')">6個月</button>
+      <button class="perf-range-btn" data-range="ytd" onclick="setPerfRange('ytd')">年初至今</button>
+      <button class="perf-range-btn" data-range="1y" onclick="setPerfRange('1y')">1年</button>
+      <button class="perf-range-btn" data-range="all" onclick="setPerfRange('all')">全部</button>
+    </div>
+  </div>
+
   <div class="kpi-grid" style="margin-bottom:14px">
     <div class="kpi"><div class="kpi-label">總市值</div><div class="kpi-value" id="sk-mv">—</div><div class="kpi-sub" id="sk-cost">成本 —</div></div>
     <div class="kpi"><div class="kpi-label">未實現</div><div class="kpi-value" id="sk-unreal">—</div><div class="kpi-badge" id="sk-pct">—</div></div>
@@ -866,9 +891,11 @@ let debts=JSON.parse(localStorage.getItem('pf_debts')||'[]');
 let bizProjects=JSON.parse(localStorage.getItem('pf_biz')||'[]');
 let bizIncome=JSON.parse(localStorage.getItem('pf_bizincome')||'[]');
 let cashflows=JSON.parse(localStorage.getItem('pf_cf')||'[]');
+let mvHistory=JSON.parse(localStorage.getItem('pf_mvhistory')||'[]'); // [{date:'2026-06-30', mv: 823346}]
 let SHEETS_URL=localStorage.getItem('gsheets_pub_url')||'';
 let holdings={},realizedList=[];
 let charts={};
+let perfRange='1m';
 
 function saveAll(){
   localStorage.setItem('pf_trades_v3',JSON.stringify(trades));
@@ -877,6 +904,24 @@ function saveAll(){
   localStorage.setItem('pf_biz',JSON.stringify(bizProjects));
   localStorage.setItem('pf_bizincome',JSON.stringify(bizIncome));
   localStorage.setItem('pf_cf',JSON.stringify(cashflows));
+  localStorage.setItem('pf_mvhistory',JSON.stringify(mvHistory));
+}
+
+// ── 記錄今日市值快照（每次開啟網頁、每天最多記一筆）──
+function recordMvSnapshot(){
+  const todayKey = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const totalMV = Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.prevClose||h.avgCost),0);
+  if(totalMV<=0) return;
+  const existing = mvHistory.find(d=>d.date===todayKey);
+  if(existing){
+    existing.mv = totalMV; // 同一天更新最新值
+  } else {
+    mvHistory.push({date:todayKey, mv:totalMV});
+  }
+  // 只保留最近 400 天，避免無限增長
+  mvHistory.sort((a,b)=>a.date.localeCompare(b.date));
+  if(mvHistory.length>400) mvHistory=mvHistory.slice(-400);
+  localStorage.setItem('pf_mvhistory',JSON.stringify(mvHistory));
 }
 
 // ══════════════════════════════════════════
@@ -1042,6 +1087,10 @@ function renderStocks(){
   if(badge){badge.textContent=(pct>=0?'▲':'▼')+Math.abs(pct).toFixed(2)+'%';badge.className='kpi-badge '+(pct>=0?'pos-bg':'neg-bg');}
   setPN('sk-real',real);set('sk-realct',realizedList.length+' 筆');
   if(today!==0)setPN('sk-today',today);else set('sk-today','—');
+
+  // 記錄市值快照 + 渲染表現卡片
+  recordMvSnapshot();
+  renderPerfCard();
 
   // 子功能渲染
   renderHoldingsTable();
@@ -1505,7 +1554,7 @@ function fmt(n){return(n||0).toLocaleString('zh-TW');}
 function fmt2(n){return(n||0).toFixed(2);}
 function set(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
 function setPN(id,val){const el=document.getElementById(id);if(!el)return;el.textContent=(val>=0?'+':'')+fmtTWD(val);el.className='kpi-value '+(val>=0?'pos':'neg');}
-function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+function showToast(msg,duration){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),duration||2500);}
 
 // ── 持倉視圖切換 ──
 let holdingView = 'table';
@@ -1588,6 +1637,121 @@ function renderUnrealChart(){
     </div>`;
   }).join('');
 }
+
+// ══════════════════════════════════════════
+// 投資組合表現卡片（Yahoo Finance 風格）
+// ══════════════════════════════════════════
+function setPerfRange(range){
+  perfRange = range;
+  document.querySelectorAll('.perf-range-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.range===range);
+  });
+  renderPerfCard();
+}
+
+function getRangeStartDate(range){
+  const now = new Date();
+  const d = new Date(now);
+  switch(range){
+    case '1d':  d.setDate(d.getDate()-1); break;
+    case '5d':  d.setDate(d.getDate()-5); break;
+    case '1m':  d.setMonth(d.getMonth()-1); break;
+    case '6m':  d.setMonth(d.getMonth()-6); break;
+    case 'ytd': return new Date(now.getFullYear(),0,1);
+    case '1y':  d.setFullYear(d.getFullYear()-1); break;
+    case 'all': return null;
+  }
+  return d;
+}
+
+function renderPerfCard(){
+  const btns = document.querySelectorAll('.perf-range-btn');
+  if(btns.length && ![...btns].some(b=>b.classList.contains('active'))){
+    document.querySelector(`.perf-range-btn[data-range="${perfRange}"]`)?.classList.add('active');
+  }
+
+  const totalMV = Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.prevClose||h.avgCost),0);
+  const totalMVEl = document.getElementById('perfTotalMV');
+  if(totalMVEl) totalMVEl.textContent = fmtTWD(totalMV);
+
+  let todayPnl=0;
+  for(const h of Object.values(holdings)){
+    if(h.currentPrice && h.prevClose) todayPnl += h.qty*(h.currentPrice-h.prevClose);
+  }
+  const todayPct = totalMV>0 ? todayPnl/(totalMV-todayPnl)*100 : 0;
+  const todayEl = document.getElementById('perfTodayChange');
+  if(todayEl){
+    if(todayPnl!==0){
+      todayEl.innerHTML = `<span style="color:${todayPnl>=0?'var(--green)':'var(--red)'};font-weight:600">${todayPnl>=0?'+':''}${fmtTWD(todayPnl)} (${todayPnl>=0?'+':''}${todayPct.toFixed(2)}%)</span> <span style="color:var(--muted)">今日</span>`;
+    } else {
+      todayEl.innerHTML = `<span style="color:var(--muted)">今日尚無變化</span>`;
+    }
+  }
+
+  const startDate = getRangeStartDate(perfRange);
+  let filtered = mvHistory.filter(d => !startDate || new Date(d.date) >= startDate);
+  const todayKey = new Date().toISOString().split('T')[0];
+  if(!filtered.length || filtered[filtered.length-1].date !== todayKey){
+    filtered = [...filtered, {date: todayKey, mv: totalMV}];
+  } else {
+    filtered[filtered.length-1] = {date: todayKey, mv: totalMV};
+  }
+
+  const rangeEl = document.getElementById('perfRangeChange');
+  const rangeLabel = {'1d':'今日','5d':'過去5天','1m':'過去一個月','6m':'過去6個月','ytd':'年初至今','1y':'過去一年','all':'全部時間'}[perfRange];
+  if(rangeEl){
+    if(filtered.length >= 2){
+      const startMV = filtered[0].mv;
+      const rangeChange = totalMV - startMV;
+      const rangePct = startMV>0 ? rangeChange/startMV*100 : 0;
+      rangeEl.innerHTML = `<span style="color:${rangeChange>=0?'var(--green)':'var(--red)'};font-weight:600">${rangeChange>=0?'+':''}${fmtTWD(rangeChange)} (${rangeChange>=0?'+':''}${rangePct.toFixed(2)}%)</span> <span style="color:var(--muted)">${rangeLabel}</span>`;
+    } else {
+      rangeEl.innerHTML = `<span style="color:var(--muted)">尚無足夠歷史資料計算${rangeLabel}報酬（資料會隨每次開啟累積）</span>`;
+    }
+  }
+
+  if(charts.perf) charts.perf.destroy();
+  const perfCtx = document.getElementById('perfChart');
+  if(!perfCtx) return;
+  const labels = filtered.map(d=>{
+    const dt = new Date(d.date);
+    return `${dt.getMonth()+1}/${dt.getDate()}`;
+  });
+  const dataVals = filtered.map(d=>d.mv);
+  const isUp = dataVals.length>=2 ? dataVals[dataVals.length-1]>=dataVals[0] : true;
+  const lineColor = isUp ? '#22c55e' : '#ef4444';
+
+  charts.perf = new Chart(perfCtx, {
+    type:'line',
+    data:{
+      labels: labels.length ? labels : ['今天'],
+      datasets:[{
+        data: dataVals.length ? dataVals : [totalMV],
+        borderColor: lineColor,
+        backgroundColor: isUp ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)',
+        borderWidth: 2,
+        pointRadius: dataVals.length>30 ? 0 : 2,
+        pointBackgroundColor: lineColor,
+        pointHoverRadius: 4,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{ callbacks:{ label: ctx => ' '+fmtTWD(ctx.raw), title: ctx => ctx[0].label } }
+      },
+      scales:{
+        x:{ ticks:{color:'#71717a',font:{size:9},maxTicksLimit:6}, grid:{display:false} },
+        y:{ ticks:{color:'#71717a',font:{size:9},callback:v=>Math.abs(v)>=1000?Math.round(v/1000)+'K':v}, grid:{color:'rgba(63,63,70,.3)'} }
+      },
+      interaction:{intersect:false,mode:'index'}
+    }
+  });
+}
+
 let sortCol='mv', sortDir=-1; // 預設市值由大到小
 
 function sortHoldings(col){
@@ -1929,12 +2093,26 @@ function toggleTradeLog(){
 // ══════════════════════════════════════════
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwFRzN8WcOcp2AhzHZAn5-qdvD8d79hNZdw72Cw8tlX-bJ51RKUMAPdsXRvnMu_Wdrn/exec';
 
-// 從雲端載入資料
-async function loadFromCloud() {
+// 從雲端載入資料（含重試＋明顯錯誤提示）
+async function loadFromCloud(silent) {
   try {
     showSyncStatus('⏳ 從雲端載入...', 'var(--yellow)');
-    const r = await fetch(WEB_APP_URL + '?action=read', { cache: 'no-store' });
-    const res = await r.json();
+    let r, res, lastErr;
+
+    // 重試最多 2 次，因為手機網路較不穩定
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        r = await fetch(WEB_APP_URL + '?action=read', { cache: 'no-store', redirect: 'follow' });
+        res = await r.json();
+        lastErr = null;
+        break;
+      } catch(e) {
+        lastErr = e;
+        if (attempt === 0) await new Promise(res => setTimeout(res, 1000));
+      }
+    }
+    if (lastErr) throw lastErr;
+
     if (res.ok && res.data) {
       const d = res.data;
       if (d.trades)      { trades      = d.trades;      localStorage.setItem('pf_trades_v3', JSON.stringify(trades)); }
@@ -1943,15 +2121,21 @@ async function loadFromCloud() {
       if (d.bizProjects) { bizProjects = d.bizProjects;  localStorage.setItem('pf_biz',       JSON.stringify(bizProjects)); }
       if (d.bizIncome)   { bizIncome   = d.bizIncome;    localStorage.setItem('pf_bizincome', JSON.stringify(bizIncome)); }
       if (d.cashflows)   { cashflows   = d.cashflows;    localStorage.setItem('pf_cf',        JSON.stringify(cashflows)); }
+      if (d.mvHistory)   { mvHistory   = d.mvHistory;    localStorage.setItem('pf_mvhistory', JSON.stringify(mvHistory)); }
       computeAll();
       renderAll();
       showSyncStatus('✅ 已同步（' + (res.data.updatedAt || '—') + '）', 'var(--green)');
-      showToast('✅ 雲端資料載入完成');
+      if (!silent) showToast('✅ 雲端資料載入完成（' + trades.length + ' 筆交易）');
     } else {
       showSyncStatus('☁️ 尚無雲端資料', 'var(--muted)');
+      if (!silent) showToast('☁️ 雲端目前沒有資料，可能尚未從其他裝置同步過');
     }
   } catch(e) {
-    showSyncStatus('⚠️ 無法連線雲端', 'var(--orange)');
+    showSyncStatus('⚠️ 無法連線雲端 — 點此重試', 'var(--red)');
+    document.getElementById('syncStatus').style.cursor = 'pointer';
+    document.getElementById('syncStatus').onclick = () => loadFromCloud(false);
+    // 明顯的失敗提示，不會被忽略
+    showToast('❌ 雲端連線失敗，目前顯示本機資料。點上方狀態文字可重試', 4000);
     console.warn('Cloud load error:', e);
   }
 }
@@ -1962,7 +2146,7 @@ async function saveToCloud() {
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
-      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
       method: 'POST',
@@ -1996,8 +2180,8 @@ function saveAll() {
 
 // Boot
 computeAll();renderAll();
-// 優先載入雲端資料（如果有的話）
-loadFromCloud().then(() => {
+// 優先載入雲端資料（如果有的話）— 失敗時仍會顯示明確錯誤
+loadFromCloud(true).then(() => {
   if(SHEETS_URL) refreshPrices();
   else { document.getElementById('priceStatus').textContent='⚙️ 設定股票報價'; }
 });
