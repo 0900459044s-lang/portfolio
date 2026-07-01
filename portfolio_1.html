@@ -184,6 +184,47 @@ td.r{text-align:right}
   .mobile-nav{display:block}
   .chart-row{grid-template-columns:1fr}
 }
+
+/* ── 財務健康評分 ── */
+.health-grid{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:center}
+.score-ring{position:relative;width:88px;height:88px;flex-shrink:0}
+.score-ring svg{transform:rotate(-90deg)}
+.score-val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.score-num{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:800;line-height:1}
+.score-sub{font-size:9px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+.health-bars{display:grid;gap:7px}
+.hb-row{display:flex;align-items:center;gap:8px}
+.hb-label{width:68px;font-size:10px;color:var(--muted);flex-shrink:0}
+.hb-track{flex:1;height:5px;background:var(--s3);border-radius:3px;overflow:hidden}
+.hb-fill{height:100%;border-radius:3px;transition:width .9s cubic-bezier(.4,0,.2,1)}
+.hb-score{width:28px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700}
+.hb-note{width:60px;text-align:right;font-size:9px;color:var(--muted)}
+
+/* ── 現金流預測 ── */
+.forecast-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.fc-card{background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+.fc-month{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.fc-net{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700}
+.fc-sub{font-size:9px;color:var(--muted);margin-top:3px}
+.fc-cum{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.fc-cum-lbl{font-size:9px;color:var(--muted)}
+.fc-cum-val{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;margin-top:2px}
+
+/* ── 分散度分析 ── */
+.div-panel{background:var(--s1);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.div-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.div-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.div-name{flex:1;font-size:11px}
+.div-pct{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);width:38px;text-align:right}
+.div-bar{width:64px;height:4px;background:var(--s3);border-radius:2px;overflow:hidden}
+.div-bar-fill{height:100%;border-radius:2px}
+
+@media(max-width:640px){
+  .health-grid{grid-template-columns:1fr}
+  .score-ring{margin:0 auto}
+  .forecast-grid{grid-template-columns:1fr}
+  .analysis-row{grid-template-columns:1fr!important}
+}
 </style>
 </head>
 <body>
@@ -239,6 +280,31 @@ td.r{text-align:right}
     </div>
   </div>
 
+  <!-- 財務健康評分 -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-head">
+      <span class="card-title">💡 財務健康評分</span>
+      <span id="healthScoreChip" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700"></span>
+    </div>
+    <div class="card-body">
+      <div class="health-grid">
+        <div class="score-ring">
+          <svg width="88" height="88" viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="44" cy="44" r="36" fill="none" stroke="var(--s3)" stroke-width="8"/>
+            <circle id="scoreArc" cx="44" cy="44" r="36" fill="none" stroke="#22c55e" stroke-width="8"
+              stroke-dasharray="226.2" stroke-dashoffset="226.2" stroke-linecap="round"
+              style="transition:stroke-dashoffset 1s cubic-bezier(.4,0,.2,1),stroke .5s"/>
+          </svg>
+          <div class="score-val">
+            <div class="score-num" id="scoreNum">—</div>
+            <div class="score-sub">/ 100</div>
+          </div>
+        </div>
+        <div class="health-bars" id="healthBars"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="kpi-grid">
     <div class="kpi">
       <div class="kpi-label">股票市值</div>
@@ -275,6 +341,18 @@ td.r{text-align:right}
     <div class="chart-card">
       <div class="chart-title">負債還款進度</div>
       <div id="debtProgress" style="padding:4px 0"></div>
+    </div>
+  </div>
+
+  <!-- 分散度分析 + 配置建議 -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:16px" class="analysis-row">
+    <div class="div-panel">
+      <div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px">📊 持倉分散度分析</div>
+      <div id="diversificationPanel"></div>
+    </div>
+    <div class="div-panel">
+      <div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px">🎯 資產配置建議</div>
+      <div id="allocationAdvice"></div>
     </div>
   </div>
 </div>
@@ -623,6 +701,29 @@ td.r{text-align:right}
     <div class="chart-card"><div class="chart-title">月收支走勢</div><div class="chart-wrap"><canvas id="cfMonthChart"></canvas></div></div>
     <div class="chart-card"><div class="chart-title">支出結構</div><div class="chart-wrap"><canvas id="cfCategoryChart"></canvas></div></div>
   </div>
+  <!-- 現金流預測 -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-head">
+      <span class="card-title">🔮 未來現金流預測</span>
+      <span style="font-size:11px;color:var(--muted)">基於近3個月平均</span>
+    </div>
+    <div class="card-body">
+      <div class="forecast-grid" id="forecastGrid">
+        <div style="text-align:center;padding:20px;color:var(--muted);grid-column:1/-1;font-size:12px">新增收支記錄後即可預測</div>
+      </div>
+      <div style="padding:12px 14px;background:var(--s2);border-radius:8px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:12px;font-weight:600">流動資金跑道</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">銀行存款 ÷ 月均支出</div>
+        </div>
+        <div style="text-align:right">
+          <div id="runwayVal" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:800">—</div>
+          <div id="runwayNote" style="font-size:10px;color:var(--muted)"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-head">
       <span class="card-title">💰 收支記錄</span>
@@ -1102,7 +1203,7 @@ async function refreshPrices(){
 // ══════════════════════════════════════════
 // Render All
 // ══════════════════════════════════════════
-function renderAll(){renderOverview();renderStocks();renderBank();renderDebt();renderBiz();renderCashflow();}
+function renderAll(){renderOverview();renderStocks();renderBank();renderDebt();renderBiz();renderCashflow();renderHealthScore();renderDiversification();renderCashflowForecast();}
 
 // ── Overview ──
 function renderOverview(){
@@ -2566,6 +2667,214 @@ const _origSaveAll = saveAll;
 function saveAll() {
   _origSaveAll();
   saveToCloud(); // 非同步，不等待
+}
+
+// ══════════════════════════════════════════
+// 財務健康評分
+// ══════════════════════════════════════════
+function renderHealthScore(){
+  const stockMV=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.avgCost),0);
+  const bankTotal=banks.reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+  const bizNet=bizProjects.reduce((s,p)=>s+(parseFloat(p.invested)||0),0)+bizIncome.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+  const totalAssets=stockMV+bankTotal+bizNet;
+  const debtTotal=debts.reduce((s,d)=>s+(parseFloat(d.remain)||0),0);
+
+  // 1. 負債比 (0-25)
+  const debtRatio=totalAssets>0?debtTotal/totalAssets:0;
+  const debtScore=Math.round(Math.max(0,25*(1-debtRatio*2)));
+
+  // 2. 分散度 HHI (0-25)
+  const totalMV=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.avgCost),0);
+  let hhi=0;
+  if(totalMV>0) Object.values(holdings).forEach(h=>{const sh=h.qty*(h.currentPrice||h.avgCost)/totalMV;hhi+=sh*sh;});
+  const n=Object.keys(holdings).length;
+  const divScore=n===0?0:Math.round(Math.max(0,25*(1-Math.min(1,hhi*2))));
+
+  // 3. 現金儲備 (0-25): 6個月支出 = 滿分
+  const now=new Date();
+  let totalExp=0,expM=0;
+  for(let i=1;i<=6;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const m=`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
+    const exp=cashflows.filter(c=>c.date.startsWith(m)&&c.type==='expense').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    if(exp>0){totalExp+=exp;expM++;}
+  }
+  const avgExp=expM>0?totalExp/expM:0;
+  const runway=avgExp>0?bankTotal/avgExp:99;
+  const cashScore=Math.round(Math.min(25,25*runway/6));
+
+  // 4. 投資報酬 (0-25): 0% ROI = 12.5分，+20% = 滿分
+  const totalCost=Object.values(holdings).reduce((s,h)=>s+h.qty*h.avgCost,0);
+  const unrealPnl=Object.values(holdings).reduce((s,h)=>s+h.qty*((h.currentPrice||h.avgCost)-h.avgCost),0);
+  const realPnl=realizedList.reduce((s,r)=>s+r.net,0);
+  const roi=totalCost>0?(unrealPnl+realPnl)/totalCost*100:0;
+  const returnScore=Math.round(Math.min(25,Math.max(0,12.5+roi*0.625)));
+
+  const total=debtScore+divScore+cashScore+returnScore;
+  const color=total>=75?'#22c55e':total>=50?'#eab308':'#ef4444';
+  const label=total>=75?'健康':total>=50?'普通':'需注意';
+
+  const arc=document.getElementById('scoreArc');
+  if(arc){arc.style.strokeDashoffset=226.2*(1-total/100);arc.style.stroke=color;}
+  const numEl=document.getElementById('scoreNum');
+  if(numEl){numEl.textContent=total;numEl.style.color=color;}
+  const chip=document.getElementById('healthScoreChip');
+  if(chip){chip.textContent=label;chip.style.color=color;}
+
+  const barsEl=document.getElementById('healthBars');
+  if(!barsEl)return;
+  const items=[
+    {label:'負債比率',score:debtScore,note:`${(debtRatio*100).toFixed(0)}%`},
+    {label:'資產分散',score:divScore,note:n?`HHI ${(hhi*100).toFixed(0)}%`:'無持倉'},
+    {label:'現金儲備',score:cashScore,note:runway<99?`${runway.toFixed(1)}個月`:'充裕'},
+    {label:'投資報酬',score:returnScore,note:(roi>=0?'+':'')+roi.toFixed(1)+'%'},
+  ];
+  barsEl.innerHTML=items.map(it=>{
+    const pct=it.score/25*100;
+    const bc=pct>=75?'var(--green)':pct>=50?'var(--yellow)':pct>=25?'var(--orange)':'var(--red)';
+    return `<div class="hb-row">
+      <div class="hb-label">${it.label}</div>
+      <div class="hb-track"><div class="hb-fill" style="width:${pct}%;background:${bc}"></div></div>
+      <div class="hb-score" style="color:${bc}">${it.score}</div>
+      <div class="hb-note">${it.note}</div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+// 分散度分析 + 配置建議
+// ══════════════════════════════════════════
+function renderDiversification(){
+  const totalMV=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.avgCost),0);
+  const divEl=document.getElementById('diversificationPanel');
+  const advEl=document.getElementById('allocationAdvice');
+
+  if(!Object.keys(holdings).length){
+    if(divEl)divEl.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:16px">尚無持倉</div>';
+    if(advEl)advEl.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:16px">新增交易後產生建議</div>';
+    return;
+  }
+
+  let hhi=0;
+  const list=Object.values(holdings).map(h=>{
+    const mv=h.qty*(h.currentPrice||h.avgCost);
+    const share=totalMV>0?mv/totalMV:0;
+    hhi+=share*share;
+    return{...h,mv,share};
+  }).sort((a,b)=>b.mv-a.mv);
+
+  const hhiPct=hhi*100;
+  const lvl=hhiPct<15?{t:'高度分散',c:'var(--green)'}:hhiPct<25?{t:'中度分散',c:'var(--yellow)'}:hhiPct<40?{t:'集中',c:'var(--orange)'}:{t:'高度集中',c:'var(--red)'};
+  const overW=list.filter(h=>h.share>0.2);
+
+  if(divEl){
+    divEl.innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div><div style="font-size:12px;font-weight:600">HHI 指數</div><div style="font-size:10px;color:var(--muted)">越低=越分散</div></div>
+        <div style="text-align:right"><div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:${lvl.c}">${hhiPct.toFixed(1)}%</div><div style="font-size:10px;color:${lvl.c}">${lvl.t}</div></div>
+      </div>
+      ${overW.length?`<div style="background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.2);border-radius:7px;padding:7px 10px;margin-bottom:10px;font-size:10px;color:var(--yellow)">⚠️ ${overW.map(h=>getName(h.sym)||getCode(h.sym)).join('、')} 佔比超過 20%</div>`:''}
+      <div>${list.slice(0,5).map((h,i)=>{
+        const name=getName(h.sym)||getCode(h.sym);
+        const c=COLORS[i%COLORS.length];
+        return `<div class="div-row">
+          <div class="div-dot" style="background:${c}"></div>
+          <div class="div-name">${name}</div>
+          <div class="div-pct">${(h.share*100).toFixed(1)}%</div>
+          <div class="div-bar"><div class="div-bar-fill" style="width:${h.share*100}%;background:${c}"></div></div>
+        </div>`;
+      }).join('')}
+      ${list.length>5?`<div style="font-size:10px;color:var(--muted);margin-top:4px">及其他 ${list.length-5} 檔</div>`:''}</div>`;
+  }
+
+  if(advEl){
+    const stockMV=totalMV;
+    const bankTotal=banks.reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+    const bizNet=bizProjects.reduce((s,p)=>s+(parseFloat(p.invested)||0),0)+bizIncome.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+    const allAssets=stockMV+bankTotal+bizNet;
+    const stockRatio=allAssets>0?stockMV/allAssets:0;
+    const cashRatio=allAssets>0?bankTotal/allAssets:0;
+
+    const tips=[];
+    if(stockRatio>0.8)tips.push({icon:'📌',text:'股票佔比超過 80%，考慮增加現金或其他資產'});
+    if(cashRatio>0.5)tips.push({icon:'📈',text:'現金佔比偏高，可考慮提高投資比例'});
+    if(hhiPct>30)tips.push({icon:'🔀',text:'持倉集中度偏高，建議擴大標的數量'});
+    if(list.length>0&&list[0].share>0.3)tips.push({icon:'⚖️',text:`${getName(list[0].sym)||getCode(list[0].sym)} 單檔佔比 ${(list[0].share*100).toFixed(0)}%，建議適當減倉`});
+    if(!tips.length)tips.push({icon:'✅',text:'資產配置良好，繼續保持！'});
+
+    // 配置比例圖
+    const ratios=[
+      {label:'股票',pct:stockRatio*100,c:'var(--blue)'},
+      {label:'現金',pct:cashRatio*100,c:'var(--green)'},
+      {label:'實體投資',pct:allAssets>0?bizNet/allAssets*100:0,c:'var(--orange)'},
+    ];
+    advEl.innerHTML=`
+      <div style="margin-bottom:12px">${ratios.map(r=>`
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+          <div style="width:52px;font-size:10px;color:var(--muted)">${r.label}</div>
+          <div style="flex:1;height:6px;background:var(--s3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${r.pct.toFixed(1)}%;background:${r.c};border-radius:3px"></div></div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;width:34px;text-align:right">${r.pct.toFixed(0)}%</div>
+        </div>`).join('')}
+      </div>
+      <div style="display:grid;gap:6px">${tips.map(t=>`<div style="display:flex;gap:7px;font-size:11px"><span>${t.icon}</span><span style="color:var(--muted)">${t.text}</span></div>`).join('')}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════
+// 現金流預測
+// ══════════════════════════════════════════
+function renderCashflowForecast(){
+  const now=new Date();
+  let avgInc=0,avgExp=0,validM=0;
+  for(let i=1;i<=3;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const m=`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
+    const inc=cashflows.filter(c=>c.date.startsWith(m)&&c.type==='income').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const exp=cashflows.filter(c=>c.date.startsWith(m)&&c.type==='expense').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const biz=bizIncome.filter(b=>b.month===m.replace('/','-')||b.month===m).reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+    avgInc+=inc+biz; avgExp+=exp; validM++;
+  }
+  if(validM>0){avgInc/=validM;avgExp/=validM;}
+  const avgNet=avgInc-avgExp;
+
+  const grid=document.getElementById('forecastGrid');
+  if(!grid)return;
+
+  if(avgInc===0&&avgExp===0){
+    grid.innerHTML='<div style="text-align:center;padding:20px;color:var(--muted);grid-column:1/-1;font-size:12px">尚無足夠歷史資料，請先新增收支記錄</div>';
+  } else {
+    const netColor=avgNet>=0?'var(--green)':'var(--red)';
+    let cum=0;
+    grid.innerHTML=[1,2,3].map(i=>{
+      const d=new Date(now.getFullYear(),now.getMonth()+i,1);
+      const lbl=`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
+      cum+=avgNet;
+      return `<div class="fc-card">
+        <div class="fc-month">${lbl}</div>
+        <div class="fc-net" style="color:${netColor}">${avgNet>=0?'+':''}${fmtTWD(avgNet)}</div>
+        <div class="fc-sub">預估月純益</div>
+        <div class="fc-cum">
+          <div class="fc-cum-lbl">累積預測</div>
+          <div class="fc-cum-val" style="color:${cum>=0?'var(--green)':'var(--red)'}">${cum>=0?'+':''}${fmtTWD(cum)}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  const bankTotal=banks.reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+  const runwayEl=document.getElementById('runwayVal');
+  const noteEl=document.getElementById('runwayNote');
+  if(runwayEl){
+    if(avgExp>0){
+      const months=bankTotal/avgExp;
+      runwayEl.textContent=months.toFixed(1)+' 個月';
+      runwayEl.style.color=months>=6?'var(--green)':months>=3?'var(--yellow)':'var(--red)';
+      if(noteEl)noteEl.textContent=months>=6?'✅ 儲備充足':months>=3?'⚠️ 建議增加儲蓄':'🚨 儲備偏低';
+    } else {
+      runwayEl.textContent='∞';runwayEl.style.color='var(--green)';
+      if(noteEl)noteEl.textContent='尚無支出記錄';
+    }
+  }
 }
 
 // Boot
