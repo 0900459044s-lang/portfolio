@@ -506,7 +506,11 @@ td.r{text-align:right}
   <div id="sk-txanalysis" style="display:none">
     <!-- 篩選列 -->
     <div style="display:flex;gap:8px;padding:10px 0;flex-wrap:wrap;align-items:center">
-      <select id="fTxStatus" onchange="renderTxAnalysis()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none">
+      <select id="fTxStatus" onchange="onTxStatusChange()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none">
+        <option value="">全部標的</option>
+        <option value="open">持倉中</option>
+        <option value="closed">已平倉</option>
+      </select>
         <option value="">全部標的</option>
         <option value="open">持倉中</option>
         <option value="closed">已平倉</option>
@@ -2100,6 +2104,26 @@ function renderStockCharts(){
       }
     }
   });
+}
+
+// ── 狀態篩選連動標的下拉 ──
+function onTxStatusChange(){
+  const fStatus = document.getElementById('fTxStatus')?.value || '';
+  const holdingSyms = new Set(Object.keys(holdings));
+  const allSymsSet = new Set([
+    ...Object.keys(holdings),
+    ...realizedList.map(r=>r.sym)
+  ]);
+  let symList = [...allSymsSet];
+  if(fStatus==='open')   symList = symList.filter(s=>holdingSyms.has(s));
+  if(fStatus==='closed') symList = symList.filter(s=>!holdingSyms.has(s));
+  symList.sort();
+  const symSel = document.getElementById('fSym');
+  if(symSel){
+    symSel.innerHTML = '<option value="">所有標的</option>' +
+      symList.map(s=>`<option value="${s}">${getName(s)||getCode(s)}</option>`).join('');
+  }
+  renderTxAnalysis();
 }
 
 // ── 交易分析三合一 ──
