@@ -357,9 +357,7 @@ td.r{text-align:right}
   <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
     <button class="btn btn-primary btn-sm" onclick="openTradeModal()">＋ 新增交易</button>
     <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-    <button class="btn btn-secondary btn-sm" id="stab-holdings" onclick="showStockTab('holdings')">📊 持倉</button>
-    <button class="btn btn-secondary btn-sm" id="stab-txanalysis" onclick="showStockTab('txanalysis')">📋 交易分析</button>
-    <button class="btn btn-secondary btn-sm" id="stab-analysis" onclick="showStockTab('analysis')">🏷️ 個股統計</button>
+    <button class="btn btn-primary btn-sm" id="stab-holdings" onclick="showStockTab('holdings')">📊 持倉</button>
   </div>
 
   <!-- 持倉明細（可排序）-->
@@ -1373,20 +1371,18 @@ function mobileShowPage(name,el){
   if(btn)showPage(name,btn);
 }
 function showStockTab(tab){
-  // 正確的 tab id 對應
   const tabs=['holdings','txanalysis','analysis'];
   tabs.forEach(t=>{
     const el=document.getElementById('sk-'+t);
     if(el) el.style.display=t===tab?'block':'none';
   });
-  // 更新按鈕樣式
-  tabs.forEach(t=>{
-    const btn=document.getElementById('stab-'+t);
-    if(btn) btn.className=t===tab?'btn btn-primary btn-sm':'btn btn-secondary btn-sm';
-  });
-  // 切到交易分析時重新渲染
+  // 現金水位永遠跟著持倉顯示
+  const cashEl=document.getElementById('sk-cash-summary');
+  if(cashEl) cashEl.style.display=tab==='holdings'?'block':'none';
+  // 更新按鈕樣式（只剩持倉按鈕）
+  const holdBtn=document.getElementById('stab-holdings');
+  if(holdBtn) holdBtn.className='btn btn-primary btn-sm';
   if(tab==='txanalysis') renderTxAnalysis();
-  // 切到個股統計時重新渲染
   if(tab==='analysis') renderAnalysis();
 }
 
@@ -2245,7 +2241,7 @@ function toggleTxDetail(rowId){
 
 
 // ── 證券戶現金設定 ──
-let cashSettings = JSON.parse(localStorage.getItem('pf_cash')||'{"deposit":0,"dividend":0,"loanTotal":0,"loanPaid":0}');
+let cashSettings = JSON.parse(localStorage.getItem('pf_cash')||'{"deposit":305055,"dividend":0,"loanTotal":0,"loanPaid":0}');
 
 function saveCashSettings(){
   cashSettings.deposit   = parseFloat(document.getElementById('cashDeposit')?.value)||0;
