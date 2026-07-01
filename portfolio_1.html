@@ -500,33 +500,27 @@ td.r{text-align:right}
 
         <!-- 自有資金 -->
         <div>
-          <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">🏦 自有資金</div>
+          <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">🏦 自有資金（入/提款記錄）</div>
+          <!-- 入提款記錄列表 -->
+          <div id="cashTxnList" style="display:grid;gap:5px;max-height:220px;overflow-y:auto;margin-bottom:10px"></div>
+          <button onclick="openCashTxnModal()" style="width:100%;padding:7px;margin-bottom:12px;background:var(--s2);border:1px dashed var(--border);border-radius:8px;color:var(--muted);font-size:12px;cursor:pointer">＋ 新增入/提款記錄</button>
+          <!-- 自動計算 -->
           <div style="display:grid;gap:8px">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--s2);border-radius:8px">
-              <span style="font-size:12px;color:var(--muted)">累計入金</span>
-              <div style="display:flex;align-items:center;gap:6px">
-                <input type="number" id="cashDeposit" placeholder="0" onchange="saveCashSettings()" style="width:120px;padding:4px 8px;background:var(--s3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;outline:none">
-                <span style="font-size:10px;color:var(--muted)">TWD</span>
-              </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:11px;color:var(--muted)">淨入金（存入－提取－費用＋股息）</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600" id="cashNetIn">—</span>
             </div>
-            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
-              <span style="font-size:12px;color:var(--muted)">買入花費</span>
-              <span class="neg" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600" id="cashBuyTotal">—</span>
+            <div style="display:flex;justify-content:space-between;padding:6px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:11px;color:var(--muted)">買入花費</span>
+              <span class="neg" style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600" id="cashBuyTotal">—</span>
             </div>
-            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
-              <span style="font-size:12px;color:var(--muted)">賣出回收</span>
-              <span class="pos" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600" id="cashSellTotal">—</span>
+            <div style="display:flex;justify-content:space-between;padding:6px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:11px;color:var(--muted)">賣出回收</span>
+              <span class="pos" style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600" id="cashSellTotal">—</span>
             </div>
-            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
-              <span style="font-size:12px;color:var(--muted)">手續費+稅</span>
-              <span class="neg" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600" id="cashFeeTotal">—</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
-              <span style="font-size:12px;color:var(--muted)">股息收入 <span style="font-size:10px">（選填）</span></span>
-              <div style="display:flex;align-items:center;gap:6px">
-                <input type="number" id="cashDividend" placeholder="0" onchange="saveCashSettings()" style="width:120px;padding:4px 8px;background:var(--s3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;outline:none">
-                <span style="font-size:10px;color:var(--muted)">TWD</span>
-              </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:11px;color:var(--muted)">手續費+稅（交易）</span>
+              <span class="neg" style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600" id="cashFeeTotal">—</span>
             </div>
             <div style="display:flex;justify-content:space-between;padding:10px 12px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px">
               <span style="font-size:12px;font-weight:600">自有現金水位</span>
@@ -890,6 +884,30 @@ td.r{text-align:right}
 </div>
 </div>
 
+<!-- Cash Transaction Modal -->
+<div class="overlay" id="cashTxnModal">
+<div class="modal">
+  <h2>💵 現金入/提款記錄</h2>
+  <div class="fg-row">
+    <div class="fg"><label>日期</label><input type="date" id="ctDate"></div>
+    <div class="fg"><label>類型</label>
+      <select id="ctType">
+        <option value="deposit">存入（入金）</option>
+        <option value="withdraw">提取（出金）</option>
+        <option value="dividend">股息收入</option>
+        <option value="expense">費用支出</option>
+      </select>
+    </div>
+  </div>
+  <div class="fg"><label>金額（TWD）</label><input type="number" id="ctAmount" min="0" placeholder="0"></div>
+  <div class="fg"><label>備註</label><input type="text" id="ctNote" placeholder="可選填，例如：媽媽贈助、娃娃機增資"></div>
+  <div class="mfooter">
+    <button class="btn btn-secondary" onclick="closeModals()">取消</button>
+    <button class="btn btn-primary" onclick="saveCashTxn()">儲存</button>
+  </div>
+</div>
+</div>
+
 <!-- Cash Flow Modal -->
 <div class="overlay" id="cfModal">
 <div class="modal">
@@ -989,6 +1007,27 @@ function normSym(r){r=r.trim().toUpperCase();if(r.includes(':'))return r;const t
 // ══════════════════════════════════════════
 // State
 // ══════════════════════════════════════════
+const INIT_CASH_TXNS=[
+  {date:'2026/06/05',type:'deposit', amount:20000, note:''},
+  {date:'2026/06/01',type:'expense', amount:4945,  note:'12/1-6/1手續費加稅'},
+  {date:'2026/05/22',type:'deposit', amount:100000,note:'媽媽的愛心贈助'},
+  {date:'2026/05/06',type:'deposit', amount:10000, note:'娃娃機增資'},
+  {date:'2026/04/01',type:'deposit', amount:20000, note:''},
+  {date:'2026/03/01',type:'deposit', amount:20000, note:''},
+  {date:'2026/02/01',type:'deposit', amount:20000, note:''},
+  {date:'2026/01/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/12/01',type:'withdraw',amount:80000, note:'娃娃機投資'},
+  {date:'2025/12/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/11/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/10/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/09/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/08/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/07/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/06/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/05/01',type:'deposit', amount:20000, note:''},
+  {date:'2025/04/01',type:'deposit', amount:20000, note:''},
+];
+
 const INIT_TRADES=[
   ["2025/04/10","TPE:2201","買進",330,34.15,16,0],["2025/05/09","TPE:2201","賣出",330,40.2,18,39],
   ["2025/06/10","TPE:006208","買進",170,110.2,26,0],["2025/07/16","TPE:0056","買進",1000,35.52,50,0],
@@ -1090,6 +1129,7 @@ function saveAll(){
   localStorage.setItem('pf_cf',JSON.stringify(cashflows));
   localStorage.setItem('pf_mvhistory',JSON.stringify(mvHistory));
   localStorage.setItem('pf_cash',JSON.stringify(cashSettings));
+  localStorage.setItem('pf_cashtxns',JSON.stringify(cashTxns));
 }
 
 // ── 記錄今日市值快照 + 從已實現損益回推歷史曲線 ──
@@ -2391,14 +2431,65 @@ function toggleTxDetail(rowId){
 
 
 // ── 證券戶現金設定 ──
-let cashSettings = JSON.parse(localStorage.getItem('pf_cash')||'{"deposit":305055,"dividend":0,"loanTotal":0,"loanPaid":0}');
+let cashSettings = JSON.parse(localStorage.getItem('pf_cash')||'{"loanTotal":0,"loanPaid":0}');
+let cashTxns = JSON.parse(localStorage.getItem('pf_cashtxns')||'null') || [...INIT_CASH_TXNS];
 
 function saveCashSettings(){
-  cashSettings.deposit   = parseFloat(document.getElementById('cashDeposit')?.value)||0;
-  cashSettings.dividend  = parseFloat(document.getElementById('cashDividend')?.value)||0;
   cashSettings.loanTotal = parseFloat(document.getElementById('cashLoanTotal')?.value)||0;
   cashSettings.loanPaid  = parseFloat(document.getElementById('cashLoanPaid')?.value)||0;
   localStorage.setItem('pf_cash', JSON.stringify(cashSettings));
+  renderCashSummary();
+}
+
+const CT_LABEL = {deposit:'存入', withdraw:'提取', dividend:'股息', expense:'費用'};
+const CT_COLOR = {deposit:'var(--green)', withdraw:'var(--red)', dividend:'var(--teal,#14b8a6)', expense:'var(--orange)'};
+const CT_SIGN  = {deposit:'+', withdraw:'-', dividend:'+', expense:'-'};
+
+function renderCashTxnList(){
+  const el = document.getElementById('cashTxnList');
+  if(!el) return;
+  const sorted = [...cashTxns].sort((a,b)=>b.date.localeCompare(a.date));
+  if(!sorted.length){ el.innerHTML='<div style="text-align:center;padding:12px;color:var(--muted);font-size:11px">尚無記錄</div>'; return; }
+  el.innerHTML = sorted.map((t,i)=>{
+    const idx = cashTxns.indexOf(t);
+    const c = CT_COLOR[t.type]||'var(--muted)';
+    return `<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--s2);border-radius:7px">
+      <span style="font-size:10px;color:var(--muted);min-width:76px;font-family:'JetBrains Mono',monospace">${t.date}</span>
+      <span style="padding:1px 6px;border-radius:4px;background:${c}22;color:${c};font-size:9px;font-weight:600;white-space:nowrap">${CT_LABEL[t.type]||t.type}</span>
+      <span style="flex:1;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.note||''}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:${c}">${CT_SIGN[t.type]||''}${fmtTWD(t.amount)}</span>
+      <button onclick="deleteCashTxn(${idx})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0 2px;line-height:1">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function openCashTxnModal(){
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('ctDate').value = today;
+  document.getElementById('ctType').value = 'deposit';
+  document.getElementById('ctAmount').value = '';
+  document.getElementById('ctNote').value = '';
+  document.getElementById('cashTxnModal').classList.add('open');
+}
+
+function saveCashTxn(){
+  const amount = parseFloat(document.getElementById('ctAmount').value)||0;
+  if(amount<=0){ alert('請填入金額'); return; }
+  cashTxns.push({
+    date: document.getElementById('ctDate').value.replace(/-/g,'/'),
+    type: document.getElementById('ctType').value,
+    amount,
+    note: document.getElementById('ctNote').value.trim()
+  });
+  localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
+  closeModals();
+  renderCashSummary();
+}
+
+function deleteCashTxn(i){
+  if(!confirm('確定刪除這筆記錄？')) return;
+  cashTxns.splice(i,1);
+  localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
   renderCashSummary();
 }
 
@@ -2412,31 +2503,38 @@ function renderCashSummary(){
     else if(action==='賣出'){ sellTotal += q*p; feeTotal += f+tx; }
   });
 
+  // 從入提款記錄計算淨入金
+  let netIn = 0;
+  cashTxns.forEach(t=>{
+    const a = t.amount||0;
+    if(t.type==='deposit'||t.type==='dividend') netIn += a;
+    else netIn -= a;
+  });
+
   // 自有現金水位
-  const deposit   = cashSettings.deposit   || 0;
-  const dividend  = cashSettings.dividend  || 0;
-  const ownLevel  = deposit - buyTotal + sellTotal - feeTotal + dividend;
+  const ownLevel = netIn - buyTotal + sellTotal - feeTotal;
 
   // 信貸現金水位
-  const loanTotal = cashSettings.loanTotal || 0;
-  const loanPaid  = cashSettings.loanPaid  || 0;
+  const loanTotal  = cashSettings.loanTotal || 0;
+  const loanPaid   = cashSettings.loanPaid  || 0;
   const loanRemain = loanTotal - loanPaid;
-  const loanLevel = loanTotal - loanPaid; // 信貸還剩多少可用
+  const loanLevel  = loanTotal - loanPaid;
 
   // 總現金水位
   const totalLevel = ownLevel + loanLevel;
 
-  // 填入輸入框（只在有值時才設定，避免覆蓋使用者正在輸入的值）
-  const depEl = document.getElementById('cashDeposit');
-  if(depEl && document.activeElement!==depEl) depEl.value = deposit||'';
-  const divEl = document.getElementById('cashDividend');
-  if(divEl && document.activeElement!==divEl) divEl.value = dividend||'';
+  // 填入信貸輸入框
   const ltEl = document.getElementById('cashLoanTotal');
   if(ltEl && document.activeElement!==ltEl) ltEl.value = loanTotal||'';
   const lpEl = document.getElementById('cashLoanPaid');
   if(lpEl && document.activeElement!==lpEl) lpEl.value = loanPaid||'';
 
+  // 渲染入提款列表
+  renderCashTxnList();
+
   // 自有區塊
+  const niEl = document.getElementById('cashNetIn');
+  if(niEl){ niEl.textContent=(netIn>=0?'+':'')+fmtTWD(netIn); niEl.style.color=netIn>=0?'var(--green)':'var(--red)'; niEl.style.fontFamily="'JetBrains Mono',monospace"; }
   set('cashBuyTotal',  '-'+fmtTWD(buyTotal));
   set('cashSellTotal', '+'+fmtTWD(sellTotal));
   set('cashFeeTotal',  '-'+fmtTWD(feeTotal));
@@ -2613,6 +2711,7 @@ async function loadFromCloud(silent) {
       if (d.cashflows)   { cashflows   = d.cashflows;    localStorage.setItem('pf_cf',        JSON.stringify(cashflows)); }
       if (d.mvHistory)   { mvHistory     = d.mvHistory;    localStorage.setItem('pf_mvhistory', JSON.stringify(mvHistory)); }
       if (d.cashSettings){ cashSettings  = d.cashSettings; localStorage.setItem('pf_cash',      JSON.stringify(cashSettings)); }
+      if (d.cashTxns)   { cashTxns      = d.cashTxns;    localStorage.setItem('pf_cashtxns',  JSON.stringify(cashTxns)); }
       computeAll();
       renderAll();
       showSyncStatus('✅ 已同步（' + (res.data.updatedAt || '—') + '）', 'var(--green)');
@@ -2637,7 +2736,7 @@ async function saveToCloud() {
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
-      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, cashSettings, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, cashSettings, cashTxns, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
       method: 'POST',
