@@ -1652,6 +1652,33 @@ function renderCashflow(){
   </tr>`).join(''):'<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--muted)">尚無記錄，點右上角新增</td></tr>';
 }
 
+// ── Sheets 設定 ──
+function openSheetsSetup(){
+  document.getElementById('sheetsUrl').value=SHEETS_URL;
+  document.getElementById('sheetsModal').classList.add('open');
+}
+function saveSheetsUrl(){
+  const url=document.getElementById('sheetsUrl').value.trim();
+  if(!url){showToast('請填入連結');return;}
+  SHEETS_URL=url;localStorage.setItem('gsheets_pub_url',url);
+  closeModals();refreshPrices();
+}
+function openManualPriceModal(){
+  document.getElementById('manualBody').innerHTML=Object.keys(holdings).map(sym=>`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center">
+      <div style="font-size:12px;font-weight:500">${getName(sym)||getCode(sym)} <span style="color:var(--muted);font-size:10px">${getCode(sym)}</span></div>
+      <input type="number" id="mp_${sym.replace(':','_')}" value="${holdings[sym].currentPrice||''}" placeholder="${holdings[sym].avgCost.toFixed(1)}" step="0.01" style="padding:7px;background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:monospace;font-size:12px;width:100%">
+    </div>`).join('');
+  closeModals();document.getElementById('manualModal').classList.add('open');
+}
+function saveManualPrices(){
+  for(const sym of Object.keys(holdings)){
+    const el=document.getElementById('mp_'+sym.replace(':','_'));
+    if(el&&el.value)holdings[sym].currentPrice=parseFloat(el.value);
+  }
+  closeModals();renderAll();showToast('✅ 已套用');
+}
+
 function closeModals(){document.querySelectorAll('.overlay').forEach(m=>m.classList.remove('open'));}
 document.querySelectorAll('.overlay').forEach(el=>el.addEventListener('click',e=>{if(e.target===el)closeModals();}));
 
