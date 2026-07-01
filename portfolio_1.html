@@ -358,6 +358,8 @@ td.r{text-align:right}
     <button class="btn btn-primary btn-sm" onclick="openTradeModal()">＋ 新增交易</button>
     <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
     <button class="btn btn-primary btn-sm" id="stab-holdings" onclick="showStockTab('holdings')">📊 持倉</button>
+    <button class="btn btn-secondary btn-sm" id="stab-txanalysis" onclick="showStockTab('txanalysis')">📋 交易分析</button>
+    <button class="btn btn-secondary btn-sm" id="stab-analysis" onclick="showStockTab('analysis')">🏷️ 個股統計</button>
   </div>
 
   <!-- 持倉明細（可排序）-->
@@ -1376,12 +1378,12 @@ function showStockTab(tab){
     const el=document.getElementById('sk-'+t);
     if(el) el.style.display=t===tab?'block':'none';
   });
-  // 現金水位永遠跟著持倉顯示
   const cashEl=document.getElementById('sk-cash-summary');
   if(cashEl) cashEl.style.display=tab==='holdings'?'block':'none';
-  // 更新按鈕樣式（只剩持倉按鈕）
-  const holdBtn=document.getElementById('stab-holdings');
-  if(holdBtn) holdBtn.className='btn btn-primary btn-sm';
+  tabs.forEach(t=>{
+    const btn=document.getElementById('stab-'+t);
+    if(btn) btn.className=t===tab?'btn btn-primary btn-sm':'btn btn-secondary btn-sm';
+  });
   if(tab==='txanalysis') renderTxAnalysis();
   if(tab==='analysis') renderAnalysis();
 }
