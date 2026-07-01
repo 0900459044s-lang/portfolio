@@ -408,8 +408,117 @@ td.r{text-align:right}
     </div>
   </div>
 
-  <!-- 交易分析（已實現＋交易記錄合併）-->
+  <!-- 證券戶現金摘要（持倉底部）-->
+  <div class="tbl-wrap" style="margin-bottom:12px" id="sk-cash-summary">
+    <div class="tbl-head" onclick="toggleSection('cashSummaryBody','cashSummaryToggle')" style="cursor:pointer">
+      <span class="tbl-title">💵 證券戶現金水位</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="cashTotalDisplay" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700"></span>
+        <span id="cashSummaryToggle" style="font-size:11px;color:var(--muted)">▶ 展開</span>
+      </div>
+    </div>
+    <div id="cashSummaryBody" style="display:none;padding:16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+        <!-- 自有資金 -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">🏦 自有資金</div>
+          <div style="display:grid;gap:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:12px;color:var(--muted)">累計入金</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" id="cashDeposit" placeholder="0" onchange="saveCashSettings()" style="width:120px;padding:4px 8px;background:var(--s3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;outline:none">
+                <span style="font-size:10px;color:var(--muted)">TWD</span>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:12px;color:var(--muted)">買入花費</span>
+              <span class="neg" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600" id="cashBuyTotal">—</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:12px;color:var(--muted)">賣出回收</span>
+              <span class="pos" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600" id="cashSellTotal">—</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:12px;color:var(--muted)">手續費+稅</span>
+              <span class="neg" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600" id="cashFeeTotal">—</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:12px;color:var(--muted)">股息收入 <span style="font-size:10px">（選填）</span></span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" id="cashDividend" placeholder="0" onchange="saveCashSettings()" style="width:120px;padding:4px 8px;background:var(--s3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;outline:none">
+                <span style="font-size:10px;color:var(--muted)">TWD</span>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px 12px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px">
+              <span style="font-size:12px;font-weight:600">自有現金水位</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700" id="cashOwnLevel">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 信貸資金 -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--orange);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">💳 信貸資金</div>
+          <div style="display:grid;gap:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:12px;color:var(--muted)">信貸總額</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" id="cashLoanTotal" placeholder="0" onchange="saveCashSettings()" style="width:120px;padding:4px 8px;background:var(--s3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;outline:none">
+                <span style="font-size:10px;color:var(--muted)">TWD</span>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:12px;color:var(--muted)">已還款</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" id="cashLoanPaid" placeholder="0" onchange="saveCashSettings()" style="width:120px;padding:4px 8px;background:var(--s3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;outline:none">
+                <span style="font-size:10px;color:var(--muted)">TWD</span>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--s2);border-radius:8px">
+              <span style="font-size:12px;color:var(--muted)">信貸剩餘未還</span>
+              <span class="neg" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600" id="cashLoanRemain">—</span>
+            </div>
+            <div style="height:8px"></div>
+            <div style="display:flex;justify-content:space-between;padding:10px 12px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.2);border-radius:8px">
+              <span style="font-size:12px;font-weight:600">信貸現金水位</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700" id="cashLoanLevel">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 總現金水位 -->
+      <div style="margin-top:14px;padding:14px 16px;background:linear-gradient(135deg,rgba(59,130,246,.1),rgba(168,85,247,.06));border:1px solid rgba(59,130,246,.2);border-radius:10px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:13px;font-weight:700">總現金水位</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">自有現金 ＋ 信貸現金</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:800" id="cashTotalLevel">—</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px" id="cashTotalNote"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 交易分析：已平倉 + 已實現損益 + 交易記錄（可編輯）-->
   <div id="sk-txanalysis" style="display:none">
+
+    <!-- 已平倉獨立區塊 -->
+    <div class="tbl-wrap" style="margin-bottom:12px">
+      <div class="tbl-head" onclick="toggleSection('closedSection','closedToggle')" style="cursor:pointer">
+        <span class="tbl-title">📦 已平倉標的</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="closedTotal" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600"></span>
+          <span id="closedToggle" style="font-size:11px;color:var(--muted)">▶ 展開</span>
+        </div>
+      </div>
+      <div id="closedSection" style="display:none">
+        <div id="closedGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;padding:14px"></div>
+      </div>
+    </div>
+
     <!-- 已實現損益 -->
     <div class="tbl-wrap" style="margin-bottom:12px">
       <div class="tbl-head">
@@ -436,10 +545,10 @@ td.r{text-align:right}
       </table></div>
     </div>
 
-    <!-- 原始交易記錄（可展開）-->
+    <!-- 交易記錄（可展開、可編輯）-->
     <div class="tbl-wrap">
-      <div class="tbl-head" onclick="toggleTradeLog()" style="cursor:pointer">
-        <span class="tbl-title">📋 原始交易記錄</span>
+      <div class="tbl-head" onclick="toggleSection('tradeLogBody','tradeLogToggle')" style="cursor:pointer">
+        <span class="tbl-title">📋 交易記錄</span>
         <div style="display:flex;align-items:center;gap:8px">
           <span id="tradeCount" style="font-size:11px;color:var(--muted)"></span>
           <span id="tradeLogToggle" style="font-size:11px;color:var(--muted)">▶ 展開</span>
@@ -454,7 +563,15 @@ td.r{text-align:right}
           <select id="fMonth" onchange="renderTxAnalysis()" style="padding:5px 8px;background:var(--s1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;font-family:inherit;outline:none"><option value="">所有月份</option></select>
         </div>
         <div class="tbl-scroll"><table>
-          <thead><tr><th>日期</th><th>股票</th><th>類別</th><th style="text-align:right">股數</th><th style="text-align:right">成交價</th><th style="text-align:right">手續費</th><th style="text-align:right">稅</th><th style="text-align:right">總金額</th><th></th></tr></thead>
+          <thead><tr>
+            <th>日期</th><th>代號</th><th>類別</th>
+            <th style="text-align:right">股數</th>
+            <th style="text-align:right">成交價</th>
+            <th style="text-align:right">手續費</th>
+            <th style="text-align:right">交易稅</th>
+            <th style="text-align:right">總金額</th>
+            <th>操作</th>
+          </tr></thead>
           <tbody id="tradesTbl"></tbody>
         </table></div>
       </div>
@@ -905,20 +1022,50 @@ function saveAll(){
   localStorage.setItem('pf_bizincome',JSON.stringify(bizIncome));
   localStorage.setItem('pf_cf',JSON.stringify(cashflows));
   localStorage.setItem('pf_mvhistory',JSON.stringify(mvHistory));
+  localStorage.setItem('pf_cash',JSON.stringify(cashSettings));
 }
 
-// ── 記錄今日市值快照（每次開啟網頁、每天最多記一筆）──
+// ── 記錄今日市值快照 + 從已實現損益回推歷史曲線 ──
 function recordMvSnapshot(){
-  const todayKey = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const todayKey = new Date().toISOString().split('T')[0];
   const totalMV = Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.prevClose||h.avgCost),0);
   if(totalMV<=0) return;
+
+  // 補入從交易記錄可以推算的歷史點（已實現損益累積）
+  // 原理：每一筆賣出日期，我們知道截至當天的累積已實現損益
+  // 用這個來補充在第一次開啟網頁之前的歷史資料
+  const realizedByDate = {};
+  let cumReal = 0;
+  const sortedReal = [...realizedList].sort((a,b)=>a.date.localeCompare(b.date));
+  sortedReal.forEach(r=>{
+    cumReal += r.net;
+    realizedByDate[r.date.replace(/\//g,'-')] = cumReal;
+  });
+
+  // 把歷史累積損益點補入 mvHistory（只補沒有的日期）
+  const existingDates = new Set(mvHistory.map(d=>d.date));
+  // 找出所有持倉股票的買入日期，用均成本估算那天的持倉市值
+  const allBuyDates = [...new Set(trades.filter(t=>t[2]==='買進').map(t=>t[0].replace(/\//g,'-')))].sort();
+  
+  // 只補最近 180 天且不在 mvHistory 裡的日期
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-180);
+  Object.entries(realizedByDate).forEach(([date, cumPnl])=>{
+    if(!existingDates.has(date) && new Date(date) >= cutoff){
+      // 用已實現損益 + 估算的持倉成本當作近似市值
+      const holdingCost = Object.values(holdings).reduce((s,h)=>s+h.qty*h.avgCost,0);
+      mvHistory.push({date, mv: holdingCost + cumPnl, isEstimated: true});
+    }
+  });
+
+  // 記錄今日實際市值
   const existing = mvHistory.find(d=>d.date===todayKey);
   if(existing){
-    existing.mv = totalMV; // 同一天更新最新值
+    existing.mv = totalMV;
+    existing.isEstimated = false;
   } else {
-    mvHistory.push({date:todayKey, mv:totalMV});
+    mvHistory.push({date: todayKey, mv: totalMV});
   }
-  // 只保留最近 400 天，避免無限增長
+
   mvHistory.sort((a,b)=>a.date.localeCompare(b.date));
   if(mvHistory.length>400) mvHistory=mvHistory.slice(-400);
   localStorage.setItem('pf_mvhistory',JSON.stringify(mvHistory));
@@ -1096,7 +1243,9 @@ function renderStocks(){
   renderHoldingsTable();
   renderStockCharts();
   renderTxAnalysis();
+  renderClosedPositions();
   renderAnalysis();
+  renderCashSummary();
 
   // 個股統計
   const symMap={};
@@ -1324,7 +1473,8 @@ function renderTrades(){renderTxAnalysis();}
 
 // ── Trade modal ──
 function openTradeModal(sym){
-  document.getElementById('tDate').value=new Date().toISOString().split('T')[0];
+  editingTradeIdx = null;
+  document.getElementById('tradeMTitle').textContent='新增交易';
   document.getElementById('tSym').value=sym?getCode(sym):'';
   document.getElementById('tName').value=sym?getName(sym):'';
   document.getElementById('tAction').value='買進';
@@ -1349,12 +1499,29 @@ function autoCalcFee(){
 }
 function autoFillName(){const sym=normSym(document.getElementById('tSym').value.trim());document.getElementById('tName').value=getName(sym)||'';}
 function saveTrade(){
-  const sym=normSym(document.getElementById('tSym').value.trim());
+  const rawSym=document.getElementById('tSym').value.trim();
+  if(!rawSym){showToast('請填入股票代號');return;}
+  const sym=normSym(rawSym);
+  const action=document.getElementById('tAction').value;
   const qty=parseInt(document.getElementById('tQty').value)||0;
   const price=parseFloat(document.getElementById('tPrice').value)||0;
-  if(!sym||qty<=0||price<=0){showToast('請填入代號、股數、成交價');return;}
-  trades.push([document.getElementById('tDate').value.replace(/-/g,'/'),sym,document.getElementById('tAction').value,qty,price,parseFloat(document.getElementById('tFee').value)||0,parseFloat(document.getElementById('tTax').value)||0]);
-  saveAll();closeModals();computeAll();renderAll();showToast('✅ 交易已記錄');
+  const fee=parseFloat(document.getElementById('tFee').value)||0;
+  const tax=parseFloat(document.getElementById('tTax').value)||0;
+  const date=document.getElementById('tDate').value.replace(/-/g,'/');
+  if(qty<=0||price<=0){showToast('請填入股數和成交價');return;}
+
+  const newTrade=[date,sym,action,qty,price,fee,tax];
+  if(editingTradeIdx !== null){
+    // 編輯模式
+    trades[editingTradeIdx] = newTrade;
+    editingTradeIdx = null;
+    showToast('✅ 交易記錄已更新');
+  } else {
+    // 新增模式
+    trades.push(newTrade);
+    showToast(`✅ ${action} ${getName(sym)||getCode(sym)} 已記錄`);
+  }
+  saveAll();closeModals();computeAll();renderAll();
 }
 function deleteTrade(i){if(!confirm('確定刪除？'))return;trades.splice(i,1);saveAll();computeAll();renderAll();showToast('已刪除');}
 
@@ -2074,18 +2241,197 @@ function renderTxAnalysis(){
       <td class="mono r">${fmt(qty)}</td><td class="mono r">${fmt2(price)}</td>
       <td class="mono r neu">${fmt(fee)}</td><td class="mono r neu">${fmt(tax)}</td>
       <td class="mono r" style="font-weight:600">${fmtTWD(total)}</td>
-      <td><button class="btn-danger" onclick="deleteTrade(${idx})">✕</button></td>
+      <td><button class="btn-ghost" onclick="startEditTrade(${idx})" style="padding:3px 6px;font-size:11px">✏️</button><button class="btn-danger" onclick="deleteTrade(${idx})">✕</button></td>
     </tr>`;
   }).join('');
 }
 
-let tradeLogOpen=false;
-function toggleTradeLog(){
-  tradeLogOpen=!tradeLogOpen;
-  const body=document.getElementById('tradeLogBody');
-  const toggle=document.getElementById('tradeLogToggle');
-  if(body) body.style.display=tradeLogOpen?'block':'none';
-  if(toggle) toggle.textContent=tradeLogOpen?'▼ 收合':'▶ 展開';
+// ── 證券戶現金設定 ──
+let cashSettings = JSON.parse(localStorage.getItem('pf_cash')||'{"deposit":0,"dividend":0,"loanTotal":0,"loanPaid":0}');
+
+function saveCashSettings(){
+  cashSettings.deposit   = parseFloat(document.getElementById('cashDeposit')?.value)||0;
+  cashSettings.dividend  = parseFloat(document.getElementById('cashDividend')?.value)||0;
+  cashSettings.loanTotal = parseFloat(document.getElementById('cashLoanTotal')?.value)||0;
+  cashSettings.loanPaid  = parseFloat(document.getElementById('cashLoanPaid')?.value)||0;
+  localStorage.setItem('pf_cash', JSON.stringify(cashSettings));
+  renderCashSummary();
+}
+
+function renderCashSummary(){
+  // 從交易記錄自動計算買入/賣出/費用
+  let buyTotal=0, sellTotal=0, feeTotal=0;
+  trades.forEach(t=>{
+    const [,, action, qty, price, fee, tax] = t;
+    const q=Number(qty), p=Number(price), f=Number(fee)||0, tx=Number(tax)||0;
+    if(action==='買進'){ buyTotal += q*p; feeTotal += f; }
+    else if(action==='賣出'){ sellTotal += q*p; feeTotal += f+tx; }
+  });
+
+  // 自有現金水位
+  const deposit   = cashSettings.deposit   || 0;
+  const dividend  = cashSettings.dividend  || 0;
+  const ownLevel  = deposit - buyTotal + sellTotal - feeTotal + dividend;
+
+  // 信貸現金水位
+  const loanTotal = cashSettings.loanTotal || 0;
+  const loanPaid  = cashSettings.loanPaid  || 0;
+  const loanRemain = loanTotal - loanPaid;
+  const loanLevel = loanTotal - loanPaid; // 信貸還剩多少可用
+
+  // 總現金水位
+  const totalLevel = ownLevel + loanLevel;
+
+  // 填入輸入框（只在有值時才設定，避免覆蓋使用者正在輸入的值）
+  const depEl = document.getElementById('cashDeposit');
+  if(depEl && document.activeElement!==depEl) depEl.value = deposit||'';
+  const divEl = document.getElementById('cashDividend');
+  if(divEl && document.activeElement!==divEl) divEl.value = dividend||'';
+  const ltEl = document.getElementById('cashLoanTotal');
+  if(ltEl && document.activeElement!==ltEl) ltEl.value = loanTotal||'';
+  const lpEl = document.getElementById('cashLoanPaid');
+  if(lpEl && document.activeElement!==lpEl) lpEl.value = loanPaid||'';
+
+  // 自有區塊
+  set('cashBuyTotal',  '-'+fmtTWD(buyTotal));
+  set('cashSellTotal', '+'+fmtTWD(sellTotal));
+  set('cashFeeTotal',  '-'+fmtTWD(feeTotal));
+  const ownEl = document.getElementById('cashOwnLevel');
+  if(ownEl){ ownEl.textContent=fmtTWD(ownLevel); ownEl.className=ownLevel>=0?'pos':'neg'; ownEl.style.fontFamily="'JetBrains Mono',monospace"; ownEl.style.fontSize='14px'; ownEl.style.fontWeight='700'; }
+
+  // 信貸區塊
+  set('cashLoanRemain', '-'+fmtTWD(loanRemain));
+  const llEl = document.getElementById('cashLoanLevel');
+  if(llEl){ llEl.textContent=fmtTWD(loanLevel); llEl.className=loanLevel>=0?'pos':'neg'; llEl.style.fontFamily="'JetBrains Mono',monospace"; llEl.style.fontSize='14px'; llEl.style.fontWeight='700'; }
+
+  // 總計
+  const tlEl = document.getElementById('cashTotalLevel');
+  if(tlEl){ tlEl.textContent=fmtTWD(totalLevel); tlEl.style.color=totalLevel>=0?'var(--green)':'var(--red)'; }
+  const tnEl = document.getElementById('cashTotalNote');
+  if(tnEl){ tnEl.textContent=`自有 ${fmtTWD(ownLevel)} ＋ 信貸 ${fmtTWD(loanLevel)}`; }
+
+  // Header 小顯示
+  const ctd = document.getElementById('cashTotalDisplay');
+  if(ctd){ ctd.textContent=fmtTWD(totalLevel); ctd.style.color=totalLevel>=0?'var(--green)':'var(--red)'; }
+}
+
+
+function toggleSection(bodyId, toggleId){
+  const body = document.getElementById(bodyId);
+  const toggle = document.getElementById(toggleId);
+  if(!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  if(toggle) toggle.textContent = isOpen ? '▶ 展開' : '▼ 收合';
+}
+// 向下相容
+function toggleTradeLog(){ toggleSection('tradeLogBody','tradeLogToggle'); }
+
+// ── 已平倉標的渲染 ──
+function renderClosedPositions(){
+  // 找出所有「有已實現損益但目前持倉為 0」的標的
+  const holdingSyms = new Set(Object.keys(holdings));
+  const closedMap = {};
+  realizedList.forEach(r=>{
+    if(!closedMap[r.sym]) closedMap[r.sym]={sym:r.sym,net:0,trades:0,wins:0,lastDate:'',cost:0};
+    closedMap[r.sym].net += r.net;
+    closedMap[r.sym].trades++;
+    closedMap[r.sym].cost += r.buyAvg * r.qty;
+    if(r.net>0) closedMap[r.sym].wins++;
+    if(r.date > closedMap[r.sym].lastDate) closedMap[r.sym].lastDate = r.date;
+  });
+  // 只保留真正已平倉的（目前不在持倉裡的）
+  const closed = Object.values(closedMap).filter(d=>!holdingSyms.has(d.sym)).sort((a,b)=>b.net-a.net);
+
+  const totalClosed = closed.reduce((s,d)=>s+d.net,0);
+  const totalEl = document.getElementById('closedTotal');
+  if(totalEl){
+    totalEl.textContent = (totalClosed>=0?'+':'')+fmtTWD(totalClosed);
+    totalEl.className = totalClosed>=0?'pos':'neg';
+  }
+
+  const grid = document.getElementById('closedGrid');
+  if(!grid) return;
+  if(!closed.length){
+    grid.innerHTML='<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px;grid-column:1/-1">尚無完全平倉的標的</div>';
+    return;
+  }
+
+  grid.innerHTML = closed.map(d=>{
+    const name = getName(d.sym)||getCode(d.sym);
+    const wr = d.trades>0?d.wins/d.trades*100:0;
+    const roi = d.cost>0?d.net/d.cost*100:0;
+    const pc = d.net>=0?'ptag-pos':'ptag-neg';
+    // 取得此標的的所有交易記錄
+    const symTrades = trades.filter(t=>t[1]===d.sym).sort((a,b)=>b[0].localeCompare(a[0]));
+    const tradeRows = symTrades.map((t,i)=>{
+      const realIdx = trades.indexOf(t);
+      const [date,sym,action,qty,price,fee,tax] = t;
+      const total = action==='買進' ? qty*price+fee : qty*price-fee-tax;
+      return `<tr style="font-size:11px">
+        <td class="mono">${date}</td>
+        <td><span style="color:${action==='買進'?'var(--green)':'var(--red)'};font-weight:600">${action}</span></td>
+        <td class="mono r">${fmt(qty)}</td>
+        <td class="mono r">${fmt2(price)}</td>
+        <td class="mono r neu">${fmt(fee+tax)}</td>
+        <td style="white-space:nowrap">
+          <button class="btn-ghost" onclick="startEditTrade(${realIdx})" style="font-size:10px;padding:2px 5px">✏️</button>
+          <button class="btn-danger" onclick="deleteTrade(${realIdx})" style="font-size:10px;padding:2px 5px">✕</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="tbl-wrap" style="padding:0">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-weight:700;font-size:13px">${name}</div>
+          <div style="font-size:10px;color:var(--muted)">${getCode(d.sym)} · 最後 ${d.lastDate}</div>
+        </div>
+        <span class="ptag ${pc}" style="font-size:12px">${(d.net>=0?'+':'')+fmtTWD(d.net)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:10px 14px;font-size:11px;border-bottom:1px solid var(--border)">
+        <div><div style="color:var(--muted)">交易次數</div><div style="font-weight:600">${d.trades} 筆</div></div>
+        <div><div style="color:var(--muted)">勝率</div><div style="font-weight:600;color:${wr>=50?'var(--green)':'var(--red)'}">${wr.toFixed(0)}%</div></div>
+        <div><div style="color:var(--muted)">已實現ROI</div><div style="font-weight:600;color:${roi>=0?'var(--green)':'var(--red)'}">${(roi>=0?'+':'')+roi.toFixed(1)}%</div></div>
+      </div>
+      <div onclick="toggleSection('closed-trades-${getCode(d.sym)}','closed-toggle-${getCode(d.sym)}')" style="padding:8px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)">
+        <span>交易明細 (${symTrades.length} 筆)</span>
+        <span id="closed-toggle-${getCode(d.sym)}">▶</span>
+      </div>
+      <div id="closed-trades-${getCode(d.sym)}" style="display:none">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:var(--s2)">
+            <th style="padding:6px 10px;font-size:10px;text-align:left;color:var(--muted)">日期</th>
+            <th style="padding:6px 10px;font-size:10px;text-align:left;color:var(--muted)">類別</th>
+            <th style="padding:6px 10px;font-size:10px;text-align:right;color:var(--muted)">股數</th>
+            <th style="padding:6px 10px;font-size:10px;text-align:right;color:var(--muted)">價格</th>
+            <th style="padding:6px 10px;font-size:10px;text-align:right;color:var(--muted)">費+稅</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${tradeRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── 交易記錄編輯 ──
+let editingTradeIdx = null;
+
+function startEditTrade(idx){
+  if(!trades[idx]) return;
+  editingTradeIdx = idx;
+  const t = trades[idx];
+  document.getElementById('tDate').value   = t[0].replace(/\//g,'-');
+  document.getElementById('tSym').value    = getCode(t[1]);
+  document.getElementById('tName').value   = getName(t[1])||getCode(t[1]);
+  document.getElementById('tAction').value = t[2];
+  document.getElementById('tQty').value    = t[3];
+  document.getElementById('tPrice').value  = t[4];
+  document.getElementById('tFee').value    = t[5];
+  document.getElementById('tTax').value    = t[6];
+  document.getElementById('tradeMTitle').textContent = '✏️ 編輯交易記錄';
+  document.getElementById('tradeModal').classList.add('open');
 }
 
 // ══════════════════════════════════════════
@@ -2121,7 +2467,8 @@ async function loadFromCloud(silent) {
       if (d.bizProjects) { bizProjects = d.bizProjects;  localStorage.setItem('pf_biz',       JSON.stringify(bizProjects)); }
       if (d.bizIncome)   { bizIncome   = d.bizIncome;    localStorage.setItem('pf_bizincome', JSON.stringify(bizIncome)); }
       if (d.cashflows)   { cashflows   = d.cashflows;    localStorage.setItem('pf_cf',        JSON.stringify(cashflows)); }
-      if (d.mvHistory)   { mvHistory   = d.mvHistory;    localStorage.setItem('pf_mvhistory', JSON.stringify(mvHistory)); }
+      if (d.mvHistory)   { mvHistory     = d.mvHistory;    localStorage.setItem('pf_mvhistory', JSON.stringify(mvHistory)); }
+      if (d.cashSettings){ cashSettings  = d.cashSettings; localStorage.setItem('pf_cash',      JSON.stringify(cashSettings)); }
       computeAll();
       renderAll();
       showSyncStatus('✅ 已同步（' + (res.data.updatedAt || '—') + '）', 'var(--green)');
@@ -2146,7 +2493,7 @@ async function saveToCloud() {
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
-      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, cashSettings, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
       method: 'POST',
