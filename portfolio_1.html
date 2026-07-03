@@ -2138,6 +2138,7 @@ function renderHoldingsTable(){
           <span style="color:var(--muted)">成本</span> ${fmt2(costPrice)}
           <span style="color:${priceBarColor};margin-left:6px">現 ${hasLivePrice?fmt2(curPrice):(h.prevClose?fmt2(curPrice)+'(估)':'—')}</span>${noLiveHint}
         </div>
+        ${h.prevClose?`<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:4px">昨收 ${fmt2(h.prevClose)}</div>`:''}
         <div style="position:relative;height:6px;background:var(--s3);border-radius:3px">
           <div style="position:absolute;left:0;top:0;height:100%;width:${costW}%;background:var(--muted2);border-radius:3px;opacity:.6"></div>
           <div style="position:absolute;left:0;top:0;height:100%;width:${curW}%;background:${priceBarColor};border-radius:3px;opacity:.8"></div>
@@ -2151,7 +2152,7 @@ function renderHoldingsTable(){
       </td>
       <td><span class="ptag ${h.unreal>=0?'ptag-pos':'ptag-neg'}">${(h.unreal>=0?'+':'')+fmtTWD(h.unreal)}</span></td>
       <td class="mono r ${h.pct>=0?'pos':'neg'}">${(h.pct>=0?'+':'')+h.pct.toFixed(2)}%</td>
-      <td class="mono r ${td!==null?(td>=0?'pos':'neg'):'neu'}">${td!==null?(td>=0?'+':'')+fmtTWD(td):'—'}</td>
+      <td class="mono r ${td!==null?(td>=0?'pos':'neg'):'neu'}">${td!==null?`${(td>=0?'+':'')+fmtTWD(td)}<div style="font-size:10px;opacity:.8">${(h.currentPrice-h.prevClose>=0?'+':'')+((h.currentPrice-h.prevClose)/h.prevClose*100).toFixed(2)}%</div>`:'—'}</td>
       <td><button class="btn-ghost" onclick="openTradeModal('${h.sym}')">＋</button></td>
     </tr>`;
   }).join(''):`<tr><td colspan="8"><div style="text-align:center;padding:40px;color:var(--muted)">尚無持倉</div></td></tr>`;
