@@ -2045,22 +2045,51 @@ function renderPerfCard(){
   }
 
   const startDate = getRangeStartDate(perfRange);
-  let filtered = mvHistory.filter(d => !startDate || new Date(d.date) >= startDate);
   const todayKey = new Date().toISOString().split('T')[0];
-  if(!filtered.length || filtered[filtered.length-1].date !== todayKey){
-    filtered = [...filtered, {date: todayKey, mv: totalMV}];
+  let filtered;
+  if(perfRange === '1d'){
+    // 1天視圖：上一個交易日收盤 → 現在（兩點式；日線資料沒有盤中曲線）
+    const prevPoint = [...mvHistory].filter(d => d.date < todayKey).pop();
+    filtered = prevPoint ? [prevPoint, {date: todayKey, mv: totalMV}] : [{date: todayKey, mv: totalMV}];
   } else {
-    filtered[filtered.length-1] = {date: todayKey, mv: totalMV};
+    filtered = mvHistory.filter(d => !startDate || new Date(d.date) >= startDate);
+    if(!filtered.length || filtered[filtered.length-1].date !== todayKey){
+      filtered = [...filtered, {date: todayKey, mv: totalMV}];
+    } else {
+      filtered[filtered.length-1] = {date: todayKey, mv: totalMV};
+    }
   }
 
   const rangeEl = document.getElementById('perfRangeChange');
   const rangeLabel = {'1d':'今日','5d':'過去5天','1m':'過去一個月','6m':'過去6個月','ytd':'年初至今','1y':'過去一年','all':'全部時間'}[perfRange];
   if(rangeEl){
     if(filtered.length >= 2){
+      // Modified Dietz（金額加權報酬率，同 Yahoo）：
+      // 報酬 = (期末市值 − 期初市值 − 期間淨投入) ÷ (期初市值 + 時間加權淨投入)
+      // 期間買進算資金投入、賣出算資金回收，投入時間越早權重越大
       const startMV = filtered[0].mv;
-      const rangeChange = totalMV - startMV;
-      const rangePct = startMV>0 ? rangeChange/startMV*100 : 0;
-      rangeEl.innerHTML = `<span style="color:${rangeChange>=0?'var(--green)':'var(--red)'};font-weight:600">${rangeChange>=0?'+':''}${fmtTWD(rangeChange)} (${rangeChange>=0?'+':''}${rangePct.toFixed(2)}%)</span> <span style="color:var(--muted)">${rangeLabel}</span>`;
+      const startKey = filtered[0].date;
+      const periodMs = Math.max(1, new Date(todayKey) - new Date(startKey));
+      let netFlow = 0, weightedFlow = 0;
+      trades.forEach(t => {
+        const dk = t[0].replace(/\//g, '-');
+        if(dk > startKey && dk <= todayKey){
+          const q = +t[3], p = +t[4], f = +t[5]||0, tx = +t[6]||0;
+          let flow = 0;
+          if(t[2] === '買進') flow = q*p + f;
+          else if(t[2] === '賣出') flow = -(q*p - f - tx);
+          if(flow !== 0){
+            const w = (new Date(todayKey) - new Date(dk)) / periodMs;
+            netFlow += flow;
+            weightedFlow += flow * w;
+          }
+        }
+      });
+      const gain = totalMV - startMV - netFlow;
+      const denom = startMV + weightedFlow;
+      const rangePct = denom > 0 ? gain/denom*100 : 0;
+      const flowNote = Math.abs(netFlow) > 0 ? `　<span style="color:var(--muted);font-size:11px">已排除期間淨投入 ${fmtTWD(netFlow)}</span>` : '';
+      rangeEl.innerHTML = `<span style="color:${gain>=0?'var(--green)':'var(--red)'};font-weight:600" title="金額加權報酬率（Modified Dietz）：排除期間入金/出金的影響，只計算真實投資損益">${gain>=0?'+':''}${fmtTWD(gain)} (${gain>=0?'+':''}${rangePct.toFixed(2)}%)</span> <span style="color:var(--muted)">${rangeLabel}</span>${flowNote}`;
     } else {
       rangeEl.innerHTML = `<span style="color:var(--muted)">尚無足夠歷史資料計算${rangeLabel}報酬（資料會隨每次開啟累積）</span>`;
     }
