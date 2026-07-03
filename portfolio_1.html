@@ -2946,11 +2946,13 @@ function showSyncStatus(text, color) {
 }
 
 // 覆寫 saveAll，每次儲存同時同步雲端
+// 注意：這裡必須用「賦值」而不是 function 宣告——
+// function 宣告會提升，讓 _origSaveAll 抓到包裝函式自己，造成無限遞迴
 const _origSaveAll = saveAll;
-function saveAll() {
+saveAll = function() {
   _origSaveAll();
   saveToCloud(); // 非同步，不等待
-}
+};
 
 // ══════════════════════════════════════════
 // 財務健康評分
