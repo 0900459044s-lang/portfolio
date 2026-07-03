@@ -134,27 +134,29 @@ function fetchTseClose(sym, di) {
   return { price: null, prev: null };
 }
 
-// ── 抓上櫃收盤價（TPEx）──
+// ── 抓上櫃收盤價（TPEx 新版 API）──
+function otcMonthRows(sym, dateStr) {
+  var url = "https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock?code=" + sym + "&date=" + dateStr + "&response=json";
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { "User-Agent": "Mozilla/5.0" } });
+  var data = JSON.parse(res.getContentText());
+  if (data.tables && data.tables[0] && data.tables[0].data) return data.tables[0].data;
+  return [];
+}
+
 function fetchOtcClose(sym, di) {
   try {
-    var url = "https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/st43_result.php?d=" + di.rocSlash + "&stkno=" + sym + "&_=" + Date.now();
-    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { "User-Agent": "Mozilla/5.0" } });
-    var data = JSON.parse(res.getContentText());
-    if (data.aaData && data.aaData.length > 0) {
-      var last  = data.aaData[data.aaData.length - 1];
-      var close = parseFloat(last[6].replace(/,/g, ""));
+    var y = di.twDate.getFullYear(), m = di.twDate.getMonth() + 1;
+    var rows = otcMonthRows(sym, y + "/" + pad(m) + "/01");
+    if (rows.length > 0) {
+      var close = parseFloat(rows[rows.length - 1][6].replace(/,/g, ""));
       var prev  = null;
-      if (data.aaData.length > 1) {
-        prev = parseFloat(data.aaData[data.aaData.length - 2][6].replace(/,/g, ""));
+      if (rows.length > 1) {
+        prev = parseFloat(rows[rows.length - 2][6].replace(/,/g, ""));
       } else {
         // 月初：回頭抓上個月最後一個交易日
-        var pm = getPrevMonthInfo(di);
-        var url2 = "https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/st43_result.php?d=" + pm.rocSlash + "&stkno=" + sym + "&_=" + Date.now();
-        var res2 = UrlFetchApp.fetch(url2, { muteHttpExceptions: true, headers: { "User-Agent": "Mozilla/5.0" } });
-        var data2 = JSON.parse(res2.getContentText());
-        if (data2.aaData && data2.aaData.length > 0) {
-          prev = parseFloat(data2.aaData[data2.aaData.length - 1][6].replace(/,/g, ""));
-        }
+        var py = m === 1 ? y - 1 : y, pm2 = m === 1 ? 12 : m - 1;
+        var rows2 = otcMonthRows(sym, py + "/" + pad(pm2) + "/01");
+        if (rows2.length > 0) prev = parseFloat(rows2[rows2.length - 1][6].replace(/,/g, ""));
       }
       if (close > 0) return { price: close, prev: prev };
     }
