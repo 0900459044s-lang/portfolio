@@ -175,6 +175,7 @@ td.r{text-align:right}
 .stock-av{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0}
 
 @media(max-width:900px){.chart-row{grid-template-columns:1fr}}
+@media(max-width:640px){#cashSummaryBody>div{grid-template-columns:1fr!important}}
 @media(max-width:640px){
   .main{padding:14px 14px 80px}
   .kpi-grid{grid-template-columns:1fr 1fr}
@@ -753,6 +754,9 @@ td.r{text-align:right}
     </button>
     <button class="nav-item" onclick="mobileShowPage('debt',this)">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>負債
+    </button>
+    <button class="nav-item" onclick="mobileShowPage('biz',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>實體
     </button>
     <button class="nav-item" onclick="mobileShowPage('cashflow',this)">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>流水
@@ -2479,6 +2483,7 @@ function saveCashSettings(){
   cashSettings.loanPaid  = parseFloat(document.getElementById('cashLoanPaid')?.value)||0;
   localStorage.setItem('pf_cash', JSON.stringify(cashSettings));
   renderCashSummary();
+  if(typeof saveToCloud==='function') saveToCloud();
 }
 
 const CT_LABEL = {deposit:'存入', withdraw:'提取', dividend:'股息', expense:'費用'};
@@ -2524,6 +2529,7 @@ function saveCashTxn(){
   localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
   closeModals();
   renderCashSummary();
+  if(typeof saveToCloud==='function') saveToCloud();
 }
 
 function deleteCashTxn(i){
@@ -2531,6 +2537,7 @@ function deleteCashTxn(i){
   cashTxns.splice(i,1);
   localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
   renderCashSummary();
+  if(typeof saveToCloud==='function') saveToCloud();
 }
 
 // ── 帳戶轉帳 ──
@@ -2588,6 +2595,7 @@ function saveTransfer(){
   localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
   closeModals();
   renderAll();
+  if(typeof saveToCloud==='function') saveToCloud();
 }
 
 function deleteTransfer(i){
@@ -2595,6 +2603,7 @@ function deleteTransfer(i){
   transfers.splice(i,1);
   localStorage.setItem('pf_transfers', JSON.stringify(transfers));
   renderTransferList();
+  if(typeof saveToCloud==='function') saveToCloud();
 }
 
 function renderTransferList(){
