@@ -1828,6 +1828,7 @@ function saveSheetsUrl(){
   if(!url){showToast('請填入連結');return;}
   SHEETS_URL=url;localStorage.setItem('gsheets_pub_url',url);
   closeModals();refreshPrices();
+  if(typeof saveToCloud==='function') saveToCloud(); // 同步報價來源到雲端，其他裝置自動生效
 }
 function openManualPriceModal(){
   document.getElementById('manualBody').innerHTML=Object.keys(holdings).map(sym=>`
@@ -2820,6 +2821,11 @@ async function loadFromCloud(silent) {
       if (d.cashSettings){ cashSettings  = d.cashSettings; localStorage.setItem('pf_cash',      JSON.stringify(cashSettings)); }
       if (d.cashTxns)   { cashTxns      = d.cashTxns;    localStorage.setItem('pf_cashtxns',  JSON.stringify(cashTxns)); }
       if (d.transfers)  { transfers     = d.transfers;   localStorage.setItem('pf_transfers', JSON.stringify(transfers)); }
+      if (d.sheetsUrl && d.sheetsUrl !== SHEETS_URL) {
+        SHEETS_URL = d.sheetsUrl;
+        localStorage.setItem('gsheets_pub_url', SHEETS_URL);
+        refreshPrices(); // 拿到報價來源後立即更新股價
+      }
       computeAll();
       renderAll();
       showSyncStatus('✅ 已同步（' + (res.data.updatedAt || '—') + '）', 'var(--green)');
@@ -2844,7 +2850,7 @@ async function saveToCloud() {
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
-      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, cashSettings, cashTxns, transfers, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, cashSettings, cashTxns, transfers, sheetsUrl: SHEETS_URL, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
       method: 'POST',
