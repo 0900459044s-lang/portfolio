@@ -633,9 +633,18 @@ td.r{text-align:right}
   <div class="card">
     <div class="card-head">
       <span class="card-title">🏦 銀行帳戶</span>
-      <button class="btn btn-primary btn-sm" onclick="openBankModal()">＋ 新增帳戶</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="openTransferModal()">⇄ 轉帳</button>
+        <button class="btn btn-primary btn-sm" onclick="openBankModal()">＋ 新增帳戶</button>
+      </div>
     </div>
     <div class="card-body" id="bankList"><div style="text-align:center;padding:32px;color:var(--muted)">尚無帳戶</div></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="card-head">
+      <span class="card-title">⇄ 轉帳記錄</span>
+    </div>
+    <div class="card-body" id="transferList"><div style="text-align:center;padding:24px;color:var(--muted);font-size:12px">尚無轉帳記錄</div></div>
   </div>
 </div>
 
@@ -806,6 +815,25 @@ td.r{text-align:right}
   <div class="mfooter">
     <button class="btn btn-secondary" onclick="closeModals()">取消</button>
     <button class="btn btn-primary" onclick="saveBank()">儲存</button>
+  </div>
+</div>
+</div>
+
+<!-- Transfer Modal -->
+<div class="overlay" id="transferModal">
+<div class="modal">
+  <h2>⇄ 帳戶轉帳</h2>
+  <div class="fg"><label>日期</label><input type="date" id="tfDate"></div>
+  <div class="fg-row">
+    <div class="fg"><label>從（轉出）</label><select id="tfFrom"></select></div>
+    <div class="fg"><label>到（轉入）</label><select id="tfTo"></select></div>
+  </div>
+  <div class="fg"><label>金額（TWD）</label><input type="number" id="tfAmount" min="0" placeholder="20000"></div>
+  <div class="fg"><label>備註</label><input type="text" id="tfNote" placeholder="可選填，例如：每月定期投入"></div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:12px">💡 轉出帳戶餘額會自動扣除、轉入帳戶自動增加。轉入證券戶會同步新增一筆「存入」現金記錄。</div>
+  <div class="mfooter">
+    <button class="btn btn-secondary" onclick="closeModals()">取消</button>
+    <button class="btn btn-primary" onclick="saveTransfer()">確認轉帳</button>
   </div>
 </div>
 </div>
@@ -1130,6 +1158,7 @@ function saveAll(){
   localStorage.setItem('pf_mvhistory',JSON.stringify(mvHistory));
   localStorage.setItem('pf_cash',JSON.stringify(cashSettings));
   localStorage.setItem('pf_cashtxns',JSON.stringify(cashTxns));
+  localStorage.setItem('pf_transfers',JSON.stringify(transfers));
 }
 
 // ── 記錄今日市值快照 + 從已實現損益回推歷史曲線 ──
@@ -1243,7 +1272,7 @@ async function refreshPrices(){
 // ══════════════════════════════════════════
 // Render All
 // ══════════════════════════════════════════
-function renderAll(){renderOverview();renderStocks();renderBank();renderDebt();renderBiz();renderCashflow();renderHealthScore();renderDiversification();renderCashflowForecast();}
+function renderAll(){renderOverview();renderStocks();renderBank();renderDebt();renderBiz();renderCashflow();renderHealthScore();renderDiversification();renderCashflowForecast();renderTransferList();}
 
 // ── Overview ──
 function renderOverview(){
@@ -2493,6 +2522,84 @@ function deleteCashTxn(i){
   renderCashSummary();
 }
 
+// ── 帳戶轉帳 ──
+let transfers = JSON.parse(localStorage.getItem('pf_transfers')||'[]');
+const BROKER_ACCT = '__broker__'; // 證券戶的特殊代碼
+
+function transferAccountOptions(){
+  const opts = banks.map((b,i)=>`<option value="${i}">🏦 ${b.name}</option>`).join('');
+  return opts + `<option value="${BROKER_ACCT}">📈 證券戶</option>`;
+}
+
+function openTransferModal(){
+  if(!banks.length){ alert('請先新增至少一個銀行帳戶'); return; }
+  document.getElementById('tfDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('tfFrom').innerHTML = transferAccountOptions();
+  document.getElementById('tfTo').innerHTML = transferAccountOptions();
+  // 預設：第一個銀行 → 證券戶
+  document.getElementById('tfTo').value = BROKER_ACCT;
+  document.getElementById('tfAmount').value = '';
+  document.getElementById('tfNote').value = '';
+  document.getElementById('transferModal').classList.add('open');
+}
+
+function transferAcctName(v){
+  return v===BROKER_ACCT ? '證券戶' : (banks[v]?.name || '（已刪除帳戶）');
+}
+
+function saveTransfer(){
+  const from = document.getElementById('tfFrom').value;
+  const to   = document.getElementById('tfTo').value;
+  const amount = parseFloat(document.getElementById('tfAmount').value)||0;
+  const date = document.getElementById('tfDate').value.replace(/-/g,'/');
+  const note = document.getElementById('tfNote').value.trim();
+  if(from===to){ alert('轉出和轉入帳戶不能相同'); return; }
+  if(amount<=0){ alert('請填入金額'); return; }
+
+  // 轉出
+  if(from===BROKER_ACCT){
+    cashTxns.push({date, type:'withdraw', amount, note: note||`轉出至 ${transferAcctName(to)}`});
+  }else{
+    const b = banks[from];
+    if((parseFloat(b.amount)||0) < amount && !confirm(`「${b.name}」餘額不足（${fmtTWD(parseFloat(b.amount)||0)}），仍要轉帳嗎？`)) return;
+    b.amount = (parseFloat(b.amount)||0) - amount;
+  }
+  // 轉入
+  if(to===BROKER_ACCT){
+    cashTxns.push({date, type:'deposit', amount, note: note||`從 ${transferAcctName(from)} 轉入`});
+  }else{
+    banks[to].amount = (parseFloat(banks[to].amount)||0) + amount;
+  }
+
+  transfers.push({date, from:transferAcctName(from), to:transferAcctName(to), amount, note});
+  localStorage.setItem('pf_transfers', JSON.stringify(transfers));
+  localStorage.setItem('pf_banks', JSON.stringify(banks));
+  localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
+  closeModals();
+  renderAll();
+}
+
+function deleteTransfer(i){
+  if(!confirm('刪除這筆轉帳記錄？\n（注意：只刪除記錄，不會自動回沖帳戶餘額）')) return;
+  transfers.splice(i,1);
+  localStorage.setItem('pf_transfers', JSON.stringify(transfers));
+  renderTransferList();
+}
+
+function renderTransferList(){
+  const el = document.getElementById('transferList');
+  if(!el) return;
+  if(!transfers.length){ el.innerHTML='<div style="text-align:center;padding:24px;color:var(--muted);font-size:12px">尚無轉帳記錄</div>'; return; }
+  const sorted = [...transfers].map((t,i)=>({...t,_i:i})).sort((a,b)=>b.date.localeCompare(a.date));
+  el.innerHTML = sorted.map(t=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--s2);border-radius:8px;margin-bottom:6px">
+      <span style="font-size:10px;color:var(--muted);min-width:76px;font-family:'JetBrains Mono',monospace">${t.date}</span>
+      <span style="font-size:12px;flex:1">${t.from} <span style="color:var(--blue)">→</span> ${t.to}${t.note?`<span style="color:var(--muted);font-size:10px">　${t.note}</span>`:''}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700">${fmtTWD(t.amount)}</span>
+      <button onclick="deleteTransfer(${t._i})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0 2px">✕</button>
+    </div>`).join('');
+}
+
 function renderCashSummary(){
   // 從交易記錄自動計算買入/賣出/費用
   let buyTotal=0, sellTotal=0, feeTotal=0;
@@ -2712,6 +2819,7 @@ async function loadFromCloud(silent) {
       if (d.mvHistory)   { mvHistory     = d.mvHistory;    localStorage.setItem('pf_mvhistory', JSON.stringify(mvHistory)); }
       if (d.cashSettings){ cashSettings  = d.cashSettings; localStorage.setItem('pf_cash',      JSON.stringify(cashSettings)); }
       if (d.cashTxns)   { cashTxns      = d.cashTxns;    localStorage.setItem('pf_cashtxns',  JSON.stringify(cashTxns)); }
+      if (d.transfers)  { transfers     = d.transfers;   localStorage.setItem('pf_transfers', JSON.stringify(transfers)); }
       computeAll();
       renderAll();
       showSyncStatus('✅ 已同步（' + (res.data.updatedAt || '—') + '）', 'var(--green)');
@@ -2736,7 +2844,7 @@ async function saveToCloud() {
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
-      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, cashSettings, cashTxns, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, cashSettings, cashTxns, transfers, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
       method: 'POST',
