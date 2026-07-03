@@ -1220,8 +1220,25 @@ function recordMvSnapshot(){
   }
 
   mvHistory.sort((a,b)=>a.date.localeCompare(b.date));
-  if(mvHistory.length>400) mvHistory=mvHistory.slice(-400);
+  if(mvHistory.length>800) mvHistory=mvHistory.slice(-800);
   localStorage.setItem('pf_mvhistory',JSON.stringify(mvHistory));
+}
+
+// ── 從雲端載入真實的每日市值歷史（GAS 盤後記錄 + 回補），取代本地估算值 ──
+async function loadMvHistoryFromCloud(){
+  try{
+    const r = await fetch(WEB_APP_URL + '?action=history', { cache:'no-store', redirect:'follow' });
+    const res = await r.json();
+    if(res.ok && res.history && res.history.length){
+      const serverDates = new Set(res.history.map(d=>d.date));
+      // 伺服器（真實收盤價）為準；本地只保留伺服器沒有的日期的「非估算」點（例如今天盤中快照）
+      const localExtra = mvHistory.filter(d=>!serverDates.has(d.date) && !d.isEstimated);
+      mvHistory = [...res.history, ...localExtra].sort((a,b)=>a.date.localeCompare(b.date));
+      if(mvHistory.length>800) mvHistory = mvHistory.slice(-800);
+      localStorage.setItem('pf_mvhistory', JSON.stringify(mvHistory));
+      if(typeof renderPerfCard==='function') renderPerfCard();
+    }
+  }catch(e){ console.warn('市值歷史載入失敗', e); }
 }
 
 // ══════════════════════════════════════════
@@ -3297,6 +3314,7 @@ function importBackup(input){
 computeAll();renderAll();
 // 優先載入雲端資料（如果有的話）— 失敗時仍會顯示明確錯誤
 loadFromCloud(true).then(() => {
+  loadMvHistoryFromCloud(); // 真實每日市值歷史（非同步，載到後自動重畫走勢圖）
   if(SHEETS_URL) refreshPrices();
   else {
     const st=document.getElementById('priceStatus');

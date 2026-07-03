@@ -17,6 +17,7 @@ function onOpen() {
     .addItem("更新今日收盤價", "updateClosePrices")
     .addItem("檢查 user_data 內容", "debugUserData")
     .addItem("設定每日自動更新", "setupDailyTrigger")
+    .addItem("回補歷史市值（一次性）", "backfillHistory")
     .addToUi();
 }
 
@@ -69,11 +70,22 @@ function getHoldingsFromUserData() {
       holdings.push({
         sym: sym.split(":")[1],
         market: sym.startsWith("TWO:") ? "otc" : "tse",
-        key: sym
+        key: sym,
+        qty: qtyMap[sym]
       });
     }
   }
   return holdings;
+}
+
+// ── 讀取全部交易記錄（回補歷史用）──
+function getTradesFromUserData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("user_data");
+  if (!sheet) return [];
+  var raw = sheet.getRange("B2").getValue();
+  if (!raw) return [];
+  try { return (JSON.parse(raw).trades) || []; } catch(e) { return []; }
 }
 
 function debugUserData() {
@@ -257,6 +269,14 @@ function updateClosePrices() {
     sheet.getRange(i + 2, 1, 1, 8).setBackground(bg);
   });
 
+  // 記錄今日投資組合總市值到歷史（方案A：每日自動累積）
+  var totalMV = 0;
+  holdings.forEach(function(h) {
+    var r2 = results[h.key];
+    if (r2 && r2.price) totalMV += h.qty * r2.price;
+  });
+  if (totalMV > 0) recordHistory(dateOnly, Math.round(totalMV));
+
   var elapsed = ((new Date().getTime() - startTime) / 1000).toFixed(1);
   Logger.log("✅ 盤後更新完成，耗時 " + elapsed + " 秒");
 
@@ -295,6 +315,139 @@ function setupDailyTrigger() {
   updateClosePrices();
 }
 
+// ══════════════════════════════════════════════
+// 投資組合市值歷史（mv_history 分頁）
+// ══════════════════════════════════════════════
+var HISTORY_SHEET = "mv_history";
+
+function getHistorySheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(HISTORY_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(HISTORY_SHEET);
+    sheet.getRange("A1:B1").setValues([["日期","總市值"]]).setFontWeight("bold");
+  }
+  return sheet;
+}
+
+// 同日覆蓋，不同日新增（保持按日期排序）
+function recordHistory(dateStr, mv) {
+  var sheet = getHistorySheet();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    var d = data[i][0];
+    var key = (d instanceof Date) ? Utilities.formatDate(d, "Asia/Taipei", "yyyy/MM/dd") : String(d);
+    if (key === dateStr) { sheet.getRange(i + 1, 2).setValue(mv); return; }
+  }
+  sheet.appendRow([dateStr, mv]);
+}
+
+// ── 方案B：一次性回補歷史市值 ──
+// 從第一筆交易日回算到今天：每個交易日的持股 × 當日收盤價
+function backfillHistory() {
+  var startTime = new Date().getTime();
+  var trades = getTradesFromUserData();
+  if (!trades.length) { safeAlert("⚠️ 沒有交易資料"); return; }
+  trades.sort(function(a, b) { return a[0].localeCompare(b[0]); });
+
+  // 1. 收集每檔股票的持有月份區間
+  var firstDate = trades[0][0]; // yyyy/MM/dd
+  var today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+
+  // 2. 抓每檔股票、每個月的每日收盤價
+  var priceMap = {}; // priceMap[sym][yyyy/MM/dd] = close
+  var symsEver = {};
+  trades.forEach(function(t) { symsEver[t[1]] = true; });
+
+  var months = [];
+  var cur = new Date(firstDate.replace(/\//g, "-") + "T00:00:00");
+  cur.setDate(1);
+  while (cur <= today) {
+    months.push({ y: cur.getFullYear(), m: cur.getMonth() + 1 });
+    cur.setMonth(cur.getMonth() + 1);
+  }
+
+  var fetchCount = 0;
+  for (var symKey in symsEver) {
+    var code = symKey.split(":")[1];
+    var isOtc = symKey.indexOf("TWO:") === 0;
+    priceMap[symKey] = {};
+    months.forEach(function(mo) {
+      try {
+        var rows;
+        if (isOtc) {
+          rows = otcMonthRows(code, mo.y + "/" + pad(mo.m) + "/01");
+          rows.forEach(function(row) {
+            // 民國日期 115/07/01 → 2026/07/01
+            var p = row[0].split("/");
+            var key = (parseInt(p[0], 10) + 1911) + "/" + p[1] + "/" + p[2];
+            var c = parseFloat(String(row[6]).replace(/,/g, ""));
+            if (c > 0) priceMap[symKey][key] = c;
+          });
+        } else {
+          var url = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=" + mo.y + pad(mo.m) + "01&stockNo=" + code + "&response=json";
+          var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+          var data = JSON.parse(res.getContentText());
+          if (data.stat === "OK" && data.data) {
+            data.data.forEach(function(row) {
+              var p = row[0].split("/");
+              var key = (parseInt(p[0], 10) + 1911) + "/" + p[1] + "/" + p[2];
+              var c = parseFloat(String(row[6]).replace(/,/g, ""));
+              if (c > 0) priceMap[symKey][key] = c;
+            });
+          }
+        }
+        fetchCount++;
+        Utilities.sleep(120); // 溫和一點，避免被官方 API 擋
+      } catch(e) { Logger.log("backfill fetch error " + symKey + " " + mo.y + "/" + mo.m + ": " + e.message); }
+    });
+  }
+
+  // 3. 取得所有交易日（任何一檔有價的日期）
+  var allDates = {};
+  for (var s in priceMap) { for (var d in priceMap[s]) allDates[d] = true; }
+  var dateList = Object.keys(allDates).sort();
+
+  // 4. 逐日回算持股 × 收盤價
+  var ti = 0;
+  var qty = {}; // 目前持股
+  var lastClose = {}; // 停牌時沿用上一個收盤
+  var rows = [];
+  dateList.forEach(function(date) {
+    // 套用當日（含）之前的所有交易
+    while (ti < trades.length && trades[ti][0] <= date) {
+      var t = trades[ti];
+      var sym = t[1], action = t[2], q = Number(t[3]) || 0;
+      if (!qty[sym]) qty[sym] = 0;
+      if (action === "買進") qty[sym] += q;
+      else if (action === "賣出") qty[sym] -= q;
+      ti++;
+    }
+    var mv = 0;
+    for (var sym2 in qty) {
+      if (qty[sym2] <= 0) continue;
+      var c = (priceMap[sym2] && priceMap[sym2][date]) || lastClose[sym2];
+      if (priceMap[sym2] && priceMap[sym2][date]) lastClose[sym2] = priceMap[sym2][date];
+      if (c) mv += qty[sym2] * c;
+    }
+    if (mv > 0) rows.push([date, Math.round(mv)]);
+  });
+
+  // 5. 整批寫入（覆蓋整個 mv_history）
+  var sheet = getHistorySheet();
+  sheet.clearContents();
+  sheet.getRange("A1:B1").setValues([["日期","總市值"]]).setFontWeight("bold");
+  if (rows.length) sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+
+  var elapsed = ((new Date().getTime() - startTime) / 1000).toFixed(1);
+  var msg = "✅ 歷史回補完成！\n" +
+    "API 呼叫：" + fetchCount + " 次\n" +
+    "回補交易日：" + rows.length + " 天（" + (rows[0] ? rows[0][0] : "-") + " ~ " + (rows.length ? rows[rows.length-1][0] : "-") + "）\n" +
+    "耗時 " + elapsed + " 秒";
+  Logger.log(msg);
+  safeAlert(msg);
+}
+
 // ── Web App 同步（保留，讓網頁可以讀寫資料）──
 const DATA_SHEET = "user_data";
 
@@ -321,6 +474,21 @@ function handleRequest(e) {
       if (data.length < 2) return { ok: true, data: null };
       var raw = data[1][1];
       return { ok: true, data: raw ? JSON.parse(raw) : null };
+    }
+
+    // 投資組合市值歷史（給網頁畫走勢圖用）
+    if (e.parameter && e.parameter.action === 'history') {
+      var hs = ss.getSheetByName(HISTORY_SHEET);
+      if (!hs) return { ok: true, history: [] };
+      var hd = hs.getDataRange().getValues();
+      var out = [];
+      for (var hi = 1; hi < hd.length; hi++) {
+        var d = hd[hi][0];
+        var key = (d instanceof Date) ? Utilities.formatDate(d, "Asia/Taipei", "yyyy/MM/dd") : String(d);
+        var mv = Number(hd[hi][1]) || 0;
+        if (key && mv > 0) out.push({ date: key.replace(/\//g, '-'), mv: mv });
+      }
+      return { ok: true, history: out };
     }
 
     if (e.postData && e.postData.contents) {
