@@ -286,6 +286,13 @@ function updateClosePrices() {
   if (failedSyms.length > 0) msg += "\n⚠️ 完全失敗：" + failedSyms.join("、");
 
   safeAlert(msg);
+  return {
+    updated: rows.length - failedSyms.length - staleSyms.length,
+    total: rows.length,
+    stale: staleSyms,
+    failed: failedSyms,
+    prices: results
+  };
 }
 
 // ── 設定每日自動更新（14:45 執行）──
@@ -474,6 +481,12 @@ function handleRequest(e) {
       if (data.length < 2) return { ok: true, data: null };
       var raw = data[1][1];
       return { ok: true, data: raw ? JSON.parse(raw) : null };
+    }
+
+    // 網頁一鍵：叫 GAS 立即抓最新收盤價（讀 user_data 持股 → 寫 prices 分頁）
+    if (e.parameter && e.parameter.action === 'refreshprices') {
+      var res = updateClosePrices();
+      return { ok: true, result: res || null };
     }
 
     // 投資組合市值歷史（給網頁畫走勢圖用）

@@ -242,6 +242,7 @@ td.r{text-align:right}
     <span id="syncStatus" title="資料會自動存到雲端，這裡顯示同步狀態" style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--s2);border:1px solid var(--border);color:var(--muted)">☁️ 連線中...</span>
     <span id="priceStatus" title="股價來源設定（Google Sheets 報價表）" style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--s2);border:1px solid var(--border);cursor:pointer" onclick="openSheetsSetup()">📈 報價設定</span>
     <button class="btn btn-primary btn-sm" onclick="refreshEverything()" title="抓取雲端最新資料＋更新所有股價">🔄 更新</button>
+    <button class="btn btn-secondary btn-sm" onclick="fetchNewPricesViaGAS()" title="新增股票後按這個：叫雲端立即抓新股票的收盤價，不用去 Google Sheets">📡 抓新股價</button>
     <button class="btn btn-secondary btn-sm" onclick="exportBackup()" title="下載全部資料的 JSON 備份檔">💾</button>
     <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFile').click()" title="從 JSON 備份檔還原資料">📥</button>
     <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
@@ -1329,6 +1330,34 @@ async function refreshEverything(){
   if(typeof loadFromCloud==='function') await loadFromCloud(true);
   await refreshPrices();
   showToast('✅ 已更新雲端資料與股價');
+}
+
+// 一鍵：新增股票後叫雲端立即抓價（先同步持股 → GAS 抓 → 直接套用回傳的價格，不繞 CSV 快取）
+async function fetchNewPricesViaGAS(){
+  const st=document.getElementById('priceStatus');
+  const prev=st?st.textContent:'';
+  try{
+    if(st){st.textContent='⏳ 同步持股中...';st.style.color='var(--yellow)';}
+    if(typeof saveToCloud==='function') await saveToCloud();   // 確保新股票已在雲端 user_data
+    if(st) st.textContent='⏳ 雲端抓取新股價中（約 10 秒）...';
+    const r=await fetch(WEB_APP_URL+'?action=refreshprices',{cache:'no-store',redirect:'follow'});
+    const j=await r.json();
+    let cnt=0;
+    if(j&&j.ok&&j.result&&j.result.prices){
+      for(const sym in j.result.prices){
+        const p=j.result.prices[sym];
+        if(holdings[sym]&&p&&p.price>0){holdings[sym].currentPrice=p.price;if(p.prev>0)holdings[sym].prevClose=p.prev;cnt++;}
+      }
+      renderAll();
+    }
+    const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+    if(st){st.textContent=`📈 股價已更新 ${t}（${cnt} 檔）`;st.style.color='var(--green)';}
+    const failed=(j&&j.result&&j.result.failed&&j.result.failed.length)?('，抓不到：'+j.result.failed.join('、')):'';
+    showToast('✅ 已抓取最新股價'+failed);
+  }catch(e){
+    if(st){st.textContent=prev||'📈 報價設定';st.style.color='';}
+    showToast('❌ 抓取失敗（GAS 可能需重新部署）：'+(e.message||e));
+  }
 }
 
 // 股價每 5 分鐘自動更新
