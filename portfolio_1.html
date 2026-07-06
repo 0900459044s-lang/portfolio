@@ -833,7 +833,7 @@ td.r{text-align:right}
   <h2>🏦 新增銀行帳戶</h2>
   <div class="fg"><label>銀行名稱</label><input type="text" id="bkName" placeholder="玉山銀行"></div>
   <div class="fg"><label>帳戶類型</label>
-    <select id="bkType"><option value="saving">活儲</option><option value="fixed">定存</option><option value="other">其他</option></select>
+    <select id="bkType"><option value="saving">活儲</option><option value="fixed">定存</option><option value="broker">證券交割戶（餘額自動連動）</option><option value="other">其他</option></select>
   </div>
   <div class="fg"><label>餘額（TWD）</label><input type="number" id="bkAmount" min="0"></div>
   <div class="fg-row">
@@ -1054,7 +1054,7 @@ const NAME_MAP={
 };
 const CAT_LABEL={salary:'薪資',invest:'投資收益',biz:'生意收入',food:'飲食',transport:'交通',rent:'房租/貸款',util:'水電網路',entertain:'娛樂',other:'其他'};
 const DEBT_LABEL={loan:'信用貸款',mortgage:'房貸',card:'信用卡',other:'其他'};
-const BANK_LABEL={saving:'活儲',fixed:'定存',other:'其他'};
+const BANK_LABEL={saving:'活儲',fixed:'定存',broker:'證券交割戶',other:'其他'};
 const COLORS=['#3b82f6','#a855f7','#22c55e','#eab308','#f97316','#14b8a6','#ef4444','#ec4899','#06b6d4','#84cc16'];
 
 function getName(sym){const c=sym.includes(':')?sym.split(':')[1]:sym;return NAME_MAP[sym]||NAME_MAP[c]||'';}
@@ -1179,6 +1179,18 @@ let mvHistory=JSON.parse(localStorage.getItem('pf_mvhistory')||'[]'); // [{date:
 let nwHistory=JSON.parse(localStorage.getItem('pf_nwhistory')||'[]'); // [{date:'2026-07-04', nw: 906454}]
 let SHEETS_URL=localStorage.getItem('gsheets_pub_url')||'';
 let holdings={},realizedList=[],marginBalance=0;
+let ownCashLevel=0,cashBuyTotal=0,cashSellTotal=0,cashFeeTotal=0,cashNetIn=0;
+// 證券戶自有現金水位（單一計算來源，總覽與現金區塊共用；同步 broker 類型銀行帳戶餘額）
+function computeOwnCash(){
+  let buy=0,sell=0,fee=0;
+  (trades||[]).forEach(t=>{const a=t[2],q=Number(t[3])||0,p=Number(t[4])||0,f=Number(t[5])||0,tx=Number(t[6])||0;
+    if(a==='買進'){buy+=q*p;fee+=f;}else if(a==='賣出'){sell+=q*p;fee+=f+tx;}});
+  let netIn=0;(cashTxns||[]).forEach(t=>{const x=t.amount||0;if(t.type==='deposit'||t.type==='dividend')netIn+=x;else netIn-=x;});
+  cashBuyTotal=buy;cashSellTotal=sell;cashFeeTotal=fee;cashNetIn=netIn;
+  ownCashLevel=netIn-buy+sell-fee+marginBalance;
+  (banks||[]).forEach(b=>{if(b.type==='broker')b.amount=Math.round(ownCashLevel);});  // 證券交割戶自動連動
+  return ownCashLevel;
+}
 let charts={};
 let perfRange='1m';
 
@@ -1376,6 +1388,7 @@ function renderAll(){renderOverview();renderStocks();renderBank();renderDebt();r
 
 // ── Overview ──
 function renderOverview(){
+  computeOwnCash();   // 先同步證券交割戶餘額，才算得對總資產
   const stockMV=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.avgCost),0);
   const stockCost=Object.values(holdings).reduce((s,h)=>s+h.qty*h.avgCost,0);
   const stockUnreal=stockMV-stockCost;
@@ -1524,13 +1537,13 @@ function renderBank(){
   const interest=banks.reduce((s,b)=>s+(parseFloat(b.amount)||0)*(parseFloat(b.rate)||0)/100,0);
   set('bk-total',fmtTWD(total));set('bk-count',banks.length+' 個帳戶');
   set('bk-saving',fmtTWD(saving));set('bk-fixed',fmtTWD(fixed));set('bk-interest',fmtTWD(interest));
-  const typeIcon={saving:'💰',fixed:'🔒',other:'🏦'};
+  const typeIcon={saving:'💰',fixed:'🔒',broker:'📈',other:'🏦'};
   document.getElementById('bankList').innerHTML=banks.length?banks.map((b,i)=>`
     <div class="bank-item">
       <div class="bank-icon">${typeIcon[b.type]||'🏦'}</div>
       <div class="bank-info">
         <div class="bank-name">${b.name}</div>
-        <div class="bank-sub">${BANK_LABEL[b.type]||b.type}${b.rate?` · 年利率 ${b.rate}%`:''}${b.expiry?` · 到期 ${b.expiry}`:''}</div>
+        <div class="bank-sub">${BANK_LABEL[b.type]||b.type}${b.type==='broker'?' · 餘額＝證券戶現金水位（自動）':''}${b.rate?` · 年利率 ${b.rate}%`:''}${b.expiry?` · 到期 ${b.expiry}`:''}</div>
         ${b.note?`<div class="bank-sub">${b.note}</div>`:''}
       </div>
       <div>
@@ -2785,25 +2798,10 @@ function renderTransferList(){
 }
 
 function renderCashSummary(){
-  // 從交易記錄自動計算買入/賣出/費用
-  let buyTotal=0, sellTotal=0, feeTotal=0;
-  trades.forEach(t=>{
-    const [,, action, qty, price, fee, tax] = t;
-    const q=Number(qty), p=Number(price), f=Number(fee)||0, tx=Number(tax)||0;
-    if(action==='買進'){ buyTotal += q*p; feeTotal += f; }
-    else if(action==='賣出'){ sellTotal += q*p; feeTotal += f+tx; }
-  });
-
-  // 從入提款記錄計算淨入金
-  let netIn = 0;
-  cashTxns.forEach(t=>{
-    const a = t.amount||0;
-    if(t.type==='deposit'||t.type==='dividend') netIn += a;
-    else netIn -= a;
-  });
-
-  // 自有現金水位（融資買進時券商代墊，那筆現金仍在你手上，故加回未償還融資）
-  const ownLevel = netIn - buyTotal + sellTotal - feeTotal + marginBalance;
+  // 單一計算來源（同步 broker 帳戶餘額），避免與總覽漂移
+  computeOwnCash();
+  const buyTotal=cashBuyTotal, sellTotal=cashSellTotal, feeTotal=cashFeeTotal, netIn=cashNetIn;
+  const ownLevel = ownCashLevel;
 
   // 信貸現金水位
   const loanTotal  = cashSettings.loanTotal || 0;
