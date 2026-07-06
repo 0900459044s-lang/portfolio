@@ -534,6 +534,10 @@ td.r{text-align:right}
               <span style="font-size:11px;color:var(--muted)">手續費+稅（交易）</span>
               <span class="neg" style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600" id="cashFeeTotal">—</span>
             </div>
+            <div id="cashMarginRow" style="display:none;justify-content:space-between;padding:6px 12px;background:rgba(249,115,22,.08);border-radius:8px">
+              <span style="font-size:11px;color:var(--orange)">融資餘額（券商借款・負債）</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--orange)" id="cashMarginBal">—</span>
+            </div>
             <div style="display:flex;justify-content:space-between;padding:10px 12px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px">
               <span style="font-size:12px;font-weight:600">自有現金水位</span>
               <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700" id="cashOwnLevel">—</span>
@@ -806,6 +810,16 @@ td.r{text-align:right}
       <input type="number" id="tTax" min="0">
     </div>
   </div>
+  <div class="fg-row">
+    <div class="fg">
+      <label>融資金 <span style="color:var(--muted);font-weight:400">（現金買填 0）</span></label>
+      <input type="number" id="tMargin" min="0" value="0" oninput="autoCalcMargin()">
+    </div>
+    <div class="fg">
+      <label>自備款 <span style="color:var(--muted);font-weight:400">（＝成交金額−融資金）</span></label>
+      <input type="number" id="tSelfPay" readonly style="opacity:.7">
+    </div>
+  </div>
   <div class="mfooter">
     <button class="btn btn-secondary" onclick="closeModals()">取消</button>
     <button class="btn btn-primary" onclick="saveTrade()">儲存</button>
@@ -1032,8 +1046,9 @@ const NAME_MAP={
   "009812":"野村日本東證","2201":"裕隆","2308":"台達電",
   "2327":"國巨","2330":"台積電","2383":"台光電","2408":"南亞科",
   "2449":"京元電子","2454":"聯發科","2472":"立隆電","3026":"禾伸堂",
-  "3037":"欣興","3042":"晶技","3481":"群創","6257":"詮欣","6442":"光聖",
-  "TWO:3163":"波若威","TWO:3260":"威剛","TWO:5274":"信驊",
+  "3037":"欣興","3042":"晶技","3481":"群創","6257":"矽格","6442":"光聖",
+  "4588":"玖鼎電力","00981A":"主動統一台股增長",
+  "TWO:3163":"波若威","TWO:3260":"威剛","TWO:5274":"信驊","TWO:5299":"杰力",
   "TWO:5314":"台揚","TWO:5425":"台半","TWO:6187":"萬潤",
   "TWO:6640":"均華","TWO:6664":"群翊","TWO:8027":"鈦昇","TWO:8064":"東捷"
 };
@@ -1045,7 +1060,7 @@ const COLORS=['#3b82f6','#a855f7','#22c55e','#eab308','#f97316','#14b8a6','#ef44
 function getName(sym){const c=sym.includes(':')?sym.split(':')[1]:sym;return NAME_MAP[sym]||NAME_MAP[c]||'';}
 function getCode(sym){return sym.includes(':')?sym.split(':')[1]:sym;}
 function getMarket(sym){return sym.startsWith('TWO:')?'OTC':'TSE';}
-function normSym(r){r=r.trim().toUpperCase();if(r.includes(':'))return r;const two=['3163','3260','5274','5314','5425','6187','6640','6664','8027','8064'];return two.includes(r)?'TWO:'+r:'TPE:'+r;}
+function normSym(r){r=r.trim().toUpperCase();if(r.includes(':'))return r;const two=['3163','3260','5274','5299','5314','5425','6187','6640','6664','8027','8064'];return two.includes(r)?'TWO:'+r:'TPE:'+r;}
 
 // ══════════════════════════════════════════
 // State
@@ -1149,6 +1164,9 @@ const INIT_TRADES=[
   ["2026/06/22","TPE:3481","買進",150,69,14,0],["2026/06/22","TWO:8064","買進",65,163,15,0],
   ["2026/06/23","TWO:5425","買進",70,143,14,0],["2026/06/24","TPE:2454","買進",2,4335,12,0],
   ["2026/06/24","TWO:5425","賣出",70,131,13,27],
+  ["2026/07/06","TWO:5299","買進",100,141.5,20,0],["2026/07/06","TPE:6257","買進",71,279,28,0],
+  ["2026/07/06","TPE:4588","賣出",35,938,46,98],["2026/07/06","TPE:00981A","買進",1000,31.78,45,0,19000],
+  ["2026/07/06","TWO:5425","買進",100,143.5,20,0],["2026/07/06","TWO:8064","賣出",130,139.5,25,54],
 ];
 
 let trades=JSON.parse(localStorage.getItem('pf_trades_v3')||'null')||[...INIT_TRADES];
@@ -1160,7 +1178,7 @@ let cashflows=JSON.parse(localStorage.getItem('pf_cf')||'[]');
 let mvHistory=JSON.parse(localStorage.getItem('pf_mvhistory')||'[]'); // [{date:'2026-06-30', mv: 823346}]
 let nwHistory=JSON.parse(localStorage.getItem('pf_nwhistory')||'[]'); // [{date:'2026-07-04', nw: 906454}]
 let SHEETS_URL=localStorage.getItem('gsheets_pub_url')||'';
-let holdings={},realizedList=[];
+let holdings={},realizedList=[],marginBalance=0;
 let charts={};
 let perfRange='1m';
 
@@ -1248,9 +1266,9 @@ function computeAll(){
   const sorted=[...trades].sort((a,b)=>a[0].localeCompare(b[0]));
   const inv={};realizedList=[];
   for(const t of sorted){
-    const[date,sym,action,qty,price,fee,tax]=t;
+    const[date,sym,action,qty,price,fee,tax,margin]=t;
     if(!inv[sym])inv[sym]=[];
-    if(action==='買進'){inv[sym].push({qty,price,totalFee:fee});}
+    if(action==='買進'){inv[sym].push({qty,price,totalFee:fee,mps:(Number(margin)||0)/qty});}
     else if(action==='賣出'){
       let rem=qty,buyCost=0,buyFee=0;const newLots=[];
       for(const lot of inv[sym]){
@@ -1258,7 +1276,7 @@ function computeAll(){
         const use=Math.min(rem,lot.qty);
         buyCost+=use*lot.price;buyFee+=(use/lot.qty)*lot.totalFee;
         rem-=use;
-        if(lot.qty-use>0)newLots.push({qty:lot.qty-use,price:lot.price,totalFee:lot.totalFee*(lot.qty-use)/lot.qty});
+        if(lot.qty-use>0)newLots.push({qty:lot.qty-use,price:lot.price,totalFee:lot.totalFee*(lot.qty-use)/lot.qty,mps:lot.mps||0});
       }
       inv[sym]=newLots;
       const gross=qty*price-buyCost+buyFee;
@@ -1266,11 +1284,13 @@ function computeAll(){
       realizedList.push({date,sym,qty,sellPrice:price,buyAvg:qty>0?(buyCost-buyFee)/qty:0,gross,allFees:fee+tax+buyFee,net});
     }
   }
-  holdings={};
+  holdings={};marginBalance=0;
   for(const[sym,lots]of Object.entries(inv)){
+    const lotMargin=lots.reduce((s,l)=>s+l.qty*(l.mps||0),0);
+    marginBalance+=lotMargin;
     const totalQty=lots.reduce((s,l)=>s+l.qty,0);if(totalQty<=0)continue;
     const totalCost=lots.reduce((s,l)=>s+l.qty*l.price,0);
-    holdings[sym]={sym,qty:totalQty,avgCost:totalCost/totalQty,currentPrice:null,prevClose:null};
+    holdings[sym]={sym,qty:totalQty,avgCost:totalCost/totalQty,currentPrice:null,prevClose:null,margin:lotMargin};
   }
 }
 
@@ -1341,13 +1361,14 @@ function renderOverview(){
   const monthNet=monthIncome-monthExp+monthBizIncome;
 
   const totalAssets=stockMV+bankTotal+bizNetValue;
-  const netWorth=totalAssets-debtTotal;
+  const allDebt=debtTotal+marginBalance;   // 含融資餘額
+  const netWorth=totalAssets-allDebt;
 
   const nwEl=document.getElementById('nwValue');
   nwEl.textContent=fmtTWD(netWorth);
   nwEl.className='networth-value '+(netWorth>=0?'pos':'neg');
   set('nwAssets',fmtTWD(totalAssets));
-  set('nwDebts',fmtTWD(debtTotal));
+  set('nwDebts',fmtTWD(allDebt));
   const mnEl=document.getElementById('nwMonthly');
   mnEl.textContent=fmtTWD(monthNet);mnEl.className='val '+(monthNet>=0?'pos':'neg');
 
@@ -1358,8 +1379,8 @@ function renderOverview(){
   set('ov-bank-count',banks.length+' 個帳戶');
   set('ov-biz',fmtTWD(bizNetValue));
   set('ov-biz-monthly',(monthBizIncome>=0?'本月 +':'本月 ')+fmtTWD(monthBizIncome));
-  set('ov-debt',fmtTWD(debtTotal));
-  set('ov-debt-monthly','每月還款 '+fmtTWD(debtMonthly));
+  set('ov-debt',fmtTWD(allDebt));
+  set('ov-debt-monthly', marginBalance>0 ? ('每月還款 '+fmtTWD(debtMonthly)+'・含融資 '+fmtTWD(marginBalance)) : ('每月還款 '+fmtTWD(debtMonthly)));
 
   // 淨值每日快照（同日覆蓋，最多保留 400 天）
   const todayKey=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
@@ -1653,7 +1674,8 @@ function openTradeModal(sym){
   document.getElementById('tSym').value=sym?getCode(sym):'';
   document.getElementById('tName').value=sym?getName(sym):'';
   document.getElementById('tAction').value='買進';
-  ['tQty','tPrice','tFee','tTax'].forEach(id=>document.getElementById(id).value='');
+  ['tQty','tPrice','tFee','tTax','tSelfPay'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('tMargin').value='0';
   document.getElementById('tradeModal').classList.add('open');
 }
 
@@ -1671,6 +1693,15 @@ function autoCalcFee(){
   } else {
     document.getElementById('tTax').value=0;
   }
+  autoCalcMargin();
+}
+function autoCalcMargin(){
+  const qty=parseInt(document.getElementById('tQty').value)||0;
+  const price=parseFloat(document.getElementById('tPrice').value)||0;
+  const margin=parseFloat(document.getElementById('tMargin').value)||0;
+  const self=Math.max(0, qty*price-margin);
+  const el=document.getElementById('tSelfPay');
+  if(el) el.value = (qty>0&&price>0) ? Math.round(self) : '';
 }
 function autoFillName(){const sym=normSym(document.getElementById('tSym').value.trim());document.getElementById('tName').value=getName(sym)||'';}
 function saveTrade(){
@@ -1682,10 +1713,12 @@ function saveTrade(){
   const price=parseFloat(document.getElementById('tPrice').value)||0;
   const fee=parseFloat(document.getElementById('tFee').value)||0;
   const tax=parseFloat(document.getElementById('tTax').value)||0;
+  const margin=parseFloat(document.getElementById('tMargin').value)||0;
   const date=document.getElementById('tDate').value.replace(/-/g,'/');
   if(qty<=0||price<=0){showToast('請填入股數和成交價');return;}
+  if(margin>0&&action==='賣出'){showToast('賣出不需填融資金，融資會自動沖銷');return;}
 
-  const newTrade=[date,sym,action,qty,price,fee,tax];
+  const newTrade = margin>0 ? [date,sym,action,qty,price,fee,tax,margin] : [date,sym,action,qty,price,fee,tax];
   if(editingTradeIdx !== null){
     // 編輯模式
     trades[editingTradeIdx] = newTrade;
@@ -2734,8 +2767,8 @@ function renderCashSummary(){
     else netIn -= a;
   });
 
-  // 自有現金水位
-  const ownLevel = netIn - buyTotal + sellTotal - feeTotal;
+  // 自有現金水位（融資買進時券商代墊，那筆現金仍在你手上，故加回未償還融資）
+  const ownLevel = netIn - buyTotal + sellTotal - feeTotal + marginBalance;
 
   // 信貸現金水位
   const loanTotal  = cashSettings.loanTotal || 0;
@@ -2761,6 +2794,8 @@ function renderCashSummary(){
   set('cashBuyTotal',  '-'+fmtTWD(buyTotal));
   set('cashSellTotal', '+'+fmtTWD(sellTotal));
   set('cashFeeTotal',  '-'+fmtTWD(feeTotal));
+  const mgRow = document.getElementById('cashMarginRow');
+  if(mgRow){ mgRow.style.display = marginBalance>0 ? 'flex' : 'none'; set('cashMarginBal', '-'+fmtTWD(marginBalance)); }
   const ownEl = document.getElementById('cashOwnLevel');
   if(ownEl){ ownEl.textContent=fmtTWD(ownLevel); ownEl.className=ownLevel>=0?'pos':'neg'; ownEl.style.fontFamily="'JetBrains Mono',monospace"; ownEl.style.fontSize='14px'; ownEl.style.fontWeight='700'; }
 
@@ -2895,6 +2930,8 @@ function startEditTrade(idx){
   document.getElementById('tPrice').value  = t[4];
   document.getElementById('tFee').value    = t[5];
   document.getElementById('tTax').value    = t[6];
+  document.getElementById('tMargin').value = t[7]||0;
+  autoCalcMargin();
   document.getElementById('tradeMTitle').textContent = '✏️ 編輯交易記錄';
   document.getElementById('tradeModal').classList.add('open');
 }
