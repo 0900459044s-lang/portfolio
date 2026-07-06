@@ -241,8 +241,7 @@ td.r{text-align:right}
   <div class="hdr-r">
     <span id="syncStatus" title="資料會自動存到雲端，這裡顯示同步狀態" style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--s2);border:1px solid var(--border);color:var(--muted)">☁️ 連線中...</span>
     <span id="priceStatus" title="股價來源設定（Google Sheets 報價表）" style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--s2);border:1px solid var(--border);cursor:pointer" onclick="openSheetsSetup()">📈 報價設定</span>
-    <button class="btn btn-primary btn-sm" onclick="refreshEverything()" title="抓取雲端最新資料＋更新所有股價">🔄 更新</button>
-    <button class="btn btn-secondary btn-sm" onclick="fetchNewPricesViaGAS()" title="新增股票後按這個：叫雲端立即抓新股票的收盤價，不用去 Google Sheets">📡 抓新股價</button>
+    <button class="btn btn-primary btn-sm" onclick="refreshEverything()" title="重載雲端資料＋更新股價；有新股票沒價格時自動去抓">🔄 更新</button>
     <button class="btn btn-secondary btn-sm" onclick="exportBackup()" title="下載全部資料的 JSON 備份檔">💾</button>
     <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFile').click()" title="從 JSON 備份檔還原資料">📥</button>
     <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
@@ -1325,21 +1324,29 @@ async function refreshPrices(){
   renderAll();
 }
 
-// 一鍵更新：雲端資料 + 股價
+// 一鍵更新：雲端資料 + 股價（若偵測到有股票沒價格，自動叫 GAS 去抓，不用另一顆按鈕）
 async function refreshEverything(){
   if(typeof loadFromCloud==='function') await loadFromCloud(true);
   await refreshPrices();
-  showToast('✅ 已更新雲端資料與股價');
+  const missing = Object.values(holdings).filter(h => !(h.currentPrice>0));
+  if(missing.length){
+    try{
+      const r = await pullPricesFromGAS(false);   // 雲端已是最新持股，免再同步
+      showToast(`✅ 已更新，補抓 ${r.cnt} 檔新股價`+(r.failed.length?('，抓不到：'+r.failed.join('、')):''));
+    }catch(e){
+      showToast('✅ 資料已更新，但新股價抓取失敗（GAS 可能需重新部署）');
+    }
+  } else {
+    showToast('✅ 已更新資料與股價');
+  }
 }
 
-// 一鍵：新增股票後叫雲端立即抓價（先同步持股 → GAS 抓 → 直接套用回傳的價格，不繞 CSV 快取）
-async function fetchNewPricesViaGAS(){
+// 叫 GAS 立即抓收盤價並直接套用（needSync=true 時先把本地持股同步上雲端再抓）
+async function pullPricesFromGAS(needSync){
   const st=document.getElementById('priceStatus');
-  const prev=st?st.textContent:'';
   try{
-    if(st){st.textContent='⏳ 同步持股中...';st.style.color='var(--yellow)';}
-    if(typeof saveToCloud==='function') await saveToCloud();   // 確保新股票已在雲端 user_data
-    if(st) st.textContent='⏳ 雲端抓取新股價中（約 10 秒）...';
+    if(needSync && typeof saveToCloud==='function'){ if(st){st.textContent='⏳ 同步持股中...';st.style.color='var(--yellow)';} await saveToCloud(); }
+    if(st){st.textContent='⏳ 雲端抓取股價中（約 10 秒）...';st.style.color='var(--yellow)';}
     const r=await fetch(WEB_APP_URL+'?action=refreshprices',{cache:'no-store',redirect:'follow'});
     const j=await r.json();
     let cnt=0;
@@ -1352,11 +1359,10 @@ async function fetchNewPricesViaGAS(){
     }
     const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
     if(st){st.textContent=`📈 股價已更新 ${t}（${cnt} 檔）`;st.style.color='var(--green)';}
-    const failed=(j&&j.result&&j.result.failed&&j.result.failed.length)?('，抓不到：'+j.result.failed.join('、')):'';
-    showToast('✅ 已抓取最新股價'+failed);
+    return {cnt, failed:(j&&j.result&&j.result.failed)||[]};
   }catch(e){
-    if(st){st.textContent=prev||'📈 報價設定';st.style.color='';}
-    showToast('❌ 抓取失敗（GAS 可能需重新部署）：'+(e.message||e));
+    if(st){st.textContent='❌ 抓取失敗（GAS 可能需重新部署）';st.style.color='var(--red)';}
+    throw e;
   }
 }
 
