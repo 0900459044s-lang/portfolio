@@ -1342,23 +1342,26 @@ async function refreshEverything(){
   await refreshPrices();
   const missing = Object.values(holdings).filter(h => !(h.currentPrice>0));
   if(missing.length){
-    try{
-      const r = await pullPricesFromGAS(false);   // 雲端已是最新持股，免再同步
-      showToast(`✅ 已更新，補抓 ${r.cnt} 檔新股價`+(r.failed.length?('，抓不到：'+r.failed.join('、')):''));
-    }catch(e){
-      showToast('✅ 資料已更新，但新股價抓取失敗（GAS 可能需重新部署）');
-    }
+    const r = await pullPricesFromGAS(false);   // 雲端已是最新持股，免再同步
+    // 狀態列一律顯示「真正有價格的檔數」，不被 GAS 抓取結果蓋成 0
+    const st=document.getElementById('priceStatus');
+    const total = Object.values(holdings).length;
+    const withPrice = Object.values(holdings).filter(h=>h.currentPrice>0).length;
+    const stillMissing = total - withPrice;
+    if(st){ const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+      st.textContent=`📈 股價已更新 ${t}（${withPrice} 檔）`; st.style.color='var(--green)'; }
+    if(r.cnt>0) showToast(`✅ 已更新，補抓 ${r.cnt} 檔新股價`);
+    else if(stillMissing>0) showToast(`✅ 資料已更新（尚有 ${stillMissing} 檔新股無報價：Google Sheets 跑「📊股票工具→更新今日收盤價」即可；重新部署 GAS 後這裡會自動抓）`);
+    else showToast('✅ 已更新資料與股價');
   } else {
     showToast('✅ 已更新資料與股價');
   }
 }
 
-// 叫 GAS 立即抓收盤價並直接套用（needSync=true 時先把本地持股同步上雲端再抓）
+// 叫 GAS 立即抓收盤價並直接套用（needSync=true 先同步持股）；不覆寫報價狀態列，由呼叫端決定顯示
 async function pullPricesFromGAS(needSync){
-  const st=document.getElementById('priceStatus');
   try{
-    if(needSync && typeof saveToCloud==='function'){ if(st){st.textContent='⏳ 同步持股中...';st.style.color='var(--yellow)';} await saveToCloud(); }
-    if(st){st.textContent='⏳ 雲端抓取股價中（約 10 秒）...';st.style.color='var(--yellow)';}
+    if(needSync && typeof saveToCloud==='function') await saveToCloud();
     const r=await fetch(WEB_APP_URL+'?action=refreshprices',{cache:'no-store',redirect:'follow'});
     const j=await r.json();
     let cnt=0;
@@ -1367,14 +1370,11 @@ async function pullPricesFromGAS(needSync){
         const p=j.result.prices[sym];
         if(holdings[sym]&&p&&p.price>0){holdings[sym].currentPrice=p.price;if(p.prev>0)holdings[sym].prevClose=p.prev;cnt++;}
       }
-      renderAll();
+      if(cnt>0) renderAll();
     }
-    const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
-    if(st){st.textContent=`📈 股價已更新 ${t}（${cnt} 檔）`;st.style.color='var(--green)';}
-    return {cnt, failed:(j&&j.result&&j.result.failed)||[]};
+    return {cnt, failed:(j&&j.result&&j.result.failed)||[], ok:!!(j&&j.ok)};
   }catch(e){
-    if(st){st.textContent='❌ 抓取失敗（GAS 可能需重新部署）';st.style.color='var(--red)';}
-    throw e;
+    return {cnt:0, failed:[], ok:false};
   }
 }
 
