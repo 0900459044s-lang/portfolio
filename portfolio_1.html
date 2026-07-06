@@ -1049,7 +1049,7 @@ const NAME_MAP={
   "3037":"欣興","3042":"晶技","3481":"群創","6257":"矽格","6442":"光聖",
   "00981A":"主動統一台股增長",
   "TWO:3163":"波若威","TWO:3260":"威剛","TWO:5274":"信驊","TWO:5299":"杰力",
-  "TWO:5314":"台揚","TWO:5425":"台半","TWO:6187":"萬潤",
+  "TWO:5314":"世紀","TWO:5425":"台半","TWO:6187":"萬潤",
   "TWO:6640":"均華","TWO:6664":"群翊","TWO:8027":"鈦昇","TWO:8064":"東捷"
 };
 const CAT_LABEL={salary:'薪資',invest:'投資收益',biz:'生意收入',food:'飲食',transport:'交通',rent:'房租/貸款',util:'水電網路',entertain:'娛樂',other:'其他'};
@@ -1555,11 +1555,11 @@ function renderBank(){
 
 // ── Debt ──
 function renderDebt(){
-  const total=debts.reduce((s,d)=>s+(parseFloat(d.remain)||0),0);
+  const total=debts.reduce((s,d)=>s+(parseFloat(d.remain)||0),0);   // 只含一般負債（給利率加權用）
   const monthly=debts.reduce((s,d)=>s+(parseFloat(d.monthly)||0),0);
   const paid=debts.reduce((s,d)=>s+Math.max(0,(parseFloat(d.total)||0)-(parseFloat(d.remain)||0)),0);
   const wAvgRate=total>0?debts.reduce((s,d)=>s+(parseFloat(d.remain)||0)*(parseFloat(d.rate)||0),0)/total:0;
-  set('dt-total',fmtTWD(total));set('dt-monthly',fmtTWD(monthly));set('dt-paid',fmtTWD(paid));
+  set('dt-total',fmtTWD(total+marginBalance));set('dt-monthly',fmtTWD(monthly));set('dt-paid',fmtTWD(paid));  // 總負債含融資，與總覽一致
   set('dt-rate',wAvgRate.toFixed(2)+'%');
   const typeColor={loan:'b-blue',mortgage:'b-purple',card:'b-red',other:'b-yellow'};
   document.getElementById('debtList').innerHTML=debts.length?`<div style="padding:4px 0">`+debts.map((d,i)=>{
@@ -1582,7 +1582,22 @@ function renderDebt(){
         <button class="btn-danger" style="padding:0;font-size:11px" onclick="deleteDebt(${i})">刪除</button>
       </div>
     </div>`;
-  }).join('')+'</div>':'<div style="text-align:center;padding:32px;color:var(--muted)">無負債記錄 🎉</div>';
+  }).join('')+marginCard()+'</div>':(marginBalance>0?`<div style="padding:4px 0">`+marginCard()+'</div>':'<div style="text-align:center;padding:32px;color:var(--muted)">無負債記錄 🎉</div>');
+}
+// 融資負債卡片（餘額隨融資持股買賣自動變動，利息另計）
+function marginCard(){
+  if(!(marginBalance>0)) return '';
+  return `<div class="debt-item">
+      <div class="debt-header">
+        <div><div class="debt-name">證券融資 <span class="badge b-red">融資</span></div>
+          <div class="debt-type">餘額隨融資持股買賣自動變動 · 利息另計</div>
+        </div>
+        <div class="debt-amount">
+          <div class="debt-remain">${fmtTWD(marginBalance)}</div>
+          <div class="debt-monthly">維持率視股價</div>
+        </div>
+      </div>
+    </div>`;
 }
 
 // ── Biz ──
