@@ -2163,11 +2163,13 @@ function renderPerfCard(){
   const todayKey = localDateKey();
   let filtered;
   if(perfRange === '1d'){
-    // 1天視圖：上一個交易日收盤 → 現在（兩點式；日線資料沒有盤中曲線）
-    const prevPoint = [...mvHistory].filter(d => d.date < todayKey).pop();
-    filtered = prevPoint ? [prevPoint, {date: todayKey, mv: totalMV}] : [{date: todayKey, mv: totalMV}];
+    // 1天視圖：起點用各持股真實昨收算的市值（＝現值−今日漲跌），與上方「今日」損益一致；日線無盤中曲線故畫兩點
+    const prevMV = totalMV - todayPnl;
+    const prevKey = ([...mvHistory].filter(d => d.date < todayKey).pop()||{}).date || (()=>{const y=new Date();y.setDate(y.getDate()-1);return localDateKey(y);})();
+    filtered = [{date: prevKey, mv: prevMV}, {date: todayKey, mv: totalMV}];
   } else {
-    filtered = mvHistory.filter(d => !startDate || new Date(d.date) >= startDate);
+    const startKey0 = startDate ? localDateKey(startDate) : null;   // #15 用本地日期字串比較，避免時分秒/UTC 位移讓邊界日忽有忽無
+    filtered = mvHistory.filter(d => !startKey0 || d.date >= startKey0);
     if(!filtered.length || filtered[filtered.length-1].date !== todayKey){
       filtered = [...filtered, {date: todayKey, mv: totalMV}];
     } else {
@@ -3373,14 +3375,15 @@ function renderXIRR(){
   if(!el) return;
   const flows=[];
   trades.forEach(t=>{
-    const [date, sym, action, qty, price, fee, tax]=t;
+    const [date, sym, action, qty, price, fee, tax, margin]=t;
     const d=new Date(date.replace(/\//g,'-'));
-    const q=Number(qty), p=Number(price), f=Number(fee)||0, tx=Number(tax)||0;
-    if(action==='買進') flows.push({date:d, amount:-(q*p+f)});
+    const q=Number(qty), p=Number(price), f=Number(fee)||0, tx=Number(tax)||0, mg=Number(margin)||0;
+    if(action==='買進') flows.push({date:d, amount:-(q*p - mg + f)});   // 融資買進實際流出只有自備款（券商墊 mg）
     else if(action==='賣出') flows.push({date:d, amount:q*p-f-tx});
   });
   const mv=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.prevClose||h.avgCost),0);  // 補昨收 fallback，與績效卡/持股表一致
-  if(mv>0) flows.push({date:new Date(), amount:mv});
+  const equity=mv-marginBalance;   // 期末權益＝毛市值−未償融資餘額（融資是負債）
+  if(equity>0) flows.push({date:new Date(), amount:equity});
   flows.sort((a,b)=>a.date-b.date);
   const r=computeXIRR(flows);
   if(r===null){ el.textContent='—'; return; }
