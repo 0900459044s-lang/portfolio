@@ -1275,8 +1275,9 @@ async function loadMvHistoryFromCloud(){
 // FIFO
 // ══════════════════════════════════════════
 function computeAll(){
-  const sorted=[...trades].sort((a,b)=>a[0].localeCompare(b[0]));
-  const inv={};realizedList=[];
+  // 同日買進排在賣出之前，避免同日「先賣後買」時 FIFO 抓錯批次/誤判超賣
+  const sorted=[...trades].sort((a,b)=>a[0].localeCompare(b[0]) || ((a[2]==='買進'?0:1)-(b[2]==='買進'?0:1)));
+  const inv={};realizedList=[];window.oversellSyms=[];
   for(const t of sorted){
     const[date,sym,action,qty,price,fee,tax,margin]=t;
     if(!inv[sym])inv[sym]=[];
@@ -1291,9 +1292,11 @@ function computeAll(){
         if(lot.qty-use>0)newLots.push({qty:lot.qty-use,price:lot.price,totalFee:lot.totalFee*(lot.qty-use)/lot.qty,mps:lot.mps||0});
       }
       inv[sym]=newLots;
-      const gross=qty*price-buyCost+buyFee;
-      const net=gross-fee-tax-buyFee;
-      realizedList.push({date,sym,qty,sellPrice:price,buyAvg:qty>0?(buyCost-buyFee)/qty:0,gross,allFees:fee+tax+buyFee,net});
+      const soldQty=qty-rem;                 // 實際配對到的股數（防超賣：超賣部分不計損益）
+      if(rem>0){ window.oversellSyms.push(sym); console.warn(`⚠️ 賣出量>持有：${sym} 賣${qty}股，僅${soldQty}股有對應買進，超賣${rem}股不計損益（可能漏記買進）`); }
+      const gross=soldQty*price-buyCost;      // 毛損益＝實際賣出收入−買進本金（不含手續費）
+      const net=gross-fee-tax;               // 淨損益（扣賣出手續費、交易稅）
+      realizedList.push({date,sym,qty:soldQty,sellPrice:price,buyAvg:soldQty>0?buyCost/soldQty:0,gross,allFees:fee+tax+buyFee,net,oversell:rem>0});
     }
   }
   holdings={};marginBalance=0;
@@ -2610,8 +2613,8 @@ function renderTxAnalysis(){
       <td class="mono r" style="font-size:11px;color:${roi>=0?'var(--green)':'var(--red)'}">
         ${d ? (roi>=0?'+':'')+roi.toFixed(1)+'%' : '—'}
       </td>
-      <td class="mono r" style="font-size:11px;color:var(--muted)">${tradesCt||symTrades.length} 筆</td>
-      <td class="mono r" style="font-size:11px;color:var(--muted)">${lastDate||'—'}</td>
+      <td class="mono r" style="font-size:11px;color:var(--muted)">${symTrades.length} 筆</td>
+      <td class="mono r" style="font-size:11px;color:var(--muted)">${symTrades.length?symTrades[0].t[0]:(lastDate||'—')}</td>
     </tr>
     <tr id="${rowId}" style="display:none">
       <td colspan="7" style="padding:0;background:var(--s2)">
@@ -2649,7 +2652,7 @@ function saveCashSettings(){
   cashSettings.loanTotal = parseFloat(document.getElementById('cashLoanTotal')?.value)||0;
   cashSettings.loanPaid  = parseFloat(document.getElementById('cashLoanPaid')?.value)||0;
   localStorage.setItem('pf_cash', JSON.stringify(cashSettings));
-  renderCashSummary();
+  renderCashSummary();renderOverview();renderBank();
   if(typeof saveToCloud==='function') saveToCloud();
 }
 
@@ -2695,7 +2698,7 @@ function saveCashTxn(){
   });
   localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
   closeModals();
-  renderCashSummary();
+  renderCashSummary();renderOverview();renderBank();
   if(typeof saveToCloud==='function') saveToCloud();
 }
 
@@ -2703,7 +2706,7 @@ function deleteCashTxn(i){
   if(!confirm('確定刪除這筆記錄？')) return;
   cashTxns.splice(i,1);
   localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
-  renderCashSummary();
+  renderCashSummary();renderOverview();renderBank();
   if(typeof saveToCloud==='function') saveToCloud();
 }
 
@@ -3093,7 +3096,7 @@ function renderHealthScore(){
   const bankTotal=banks.reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
   const bizNet=bizProjects.reduce((s,p)=>s+(parseFloat(p.invested)||0),0)+bizIncome.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
   const totalAssets=stockMV+bankTotal+bizNet;
-  const debtTotal=debts.reduce((s,d)=>s+(parseFloat(d.remain)||0),0);
+  const debtTotal=debts.reduce((s,d)=>s+(parseFloat(d.remain)||0),0)+marginBalance;  // 含融資，與總覽/負債頁一致
 
   // 1. 負債比 (0-25)
   const debtRatio=totalAssets>0?debtTotal/totalAssets:0;
@@ -3360,7 +3363,7 @@ function renderXIRR(){
     if(action==='買進') flows.push({date:d, amount:-(q*p+f)});
     else if(action==='賣出') flows.push({date:d, amount:q*p-f-tx});
   });
-  const mv=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.avgCost),0);
+  const mv=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.prevClose||h.avgCost),0);  // 補昨收 fallback，與績效卡/持股表一致
   if(mv>0) flows.push({date:new Date(), amount:mv});
   flows.sort((a,b)=>a.date-b.date);
   const r=computeXIRR(flows);
