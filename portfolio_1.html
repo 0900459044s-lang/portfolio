@@ -2180,6 +2180,12 @@ function renderPerfCard(){
     }
   }
 
+  // 排除休市日（週六日）：不畫在折線圖、也不當區間起點；永遠保留最後一點(今日)
+  if(perfRange !== '1d' && filtered.length > 1){
+    const _last = filtered.length - 1;
+    filtered = filtered.filter((d,i)=>{const dw=new Date(d.date).getDay();return (dw!==0&&dw!==6)||i===_last;});
+  }
+
   const rangeEl = document.getElementById('perfRangeChange');
   const rangeLabel = {'1d':'今日','5d':'過去5天','1m':'過去一個月','6m':'過去6個月','ytd':'年初至今','1y':'過去一年','all':'全部時間'}[perfRange];
   if(rangeEl){
@@ -3328,20 +3334,22 @@ function renderNetWorthChart(){
     return;
   }
   card.style.display='';
+  // 排除休市日（週六日），永遠保留最後一點(今日)
+  const nwPlot=nwHistory.filter((d,i)=>{const dw=new Date(d.date).getDay();return (dw!==0&&dw!==6)||i===nwHistory.length-1;});
   const note=document.getElementById('nwTrendNote');
-  const first=nwHistory[0], last=nwHistory[nwHistory.length-1];
+  const first=nwPlot[0], last=nwPlot[nwPlot.length-1];
   const diff=last.nw-first.nw;
-  if(note) note.textContent=`${nwHistory.length} 天　${diff>=0?'+':''}${fmtTWD(diff)}`;
+  if(note) note.textContent=`${nwPlot.length} 天　${diff>=0?'+':''}${fmtTWD(diff)}`;
   if(charts.nw) charts.nw.destroy();
   charts.nw=new Chart(document.getElementById('nwChart'),{
     type:'line',
     data:{
-      labels:nwHistory.map(d=>d.date.slice(5)),
+      labels:nwPlot.map(d=>d.date.slice(5)),
       datasets:[{
-        data:nwHistory.map(d=>d.nw),
+        data:nwPlot.map(d=>d.nw),
         borderColor:'#3b82f6',
         backgroundColor:'rgba(59,130,246,.08)',
-        fill:true, tension:.3, pointRadius:nwHistory.length>60?0:2, borderWidth:2
+        fill:true, tension:.3, pointRadius:nwPlot.length>60?0:2, borderWidth:2
       }]
     },
     options:{
