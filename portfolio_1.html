@@ -1242,13 +1242,16 @@ function recordMvSnapshot(){
     }
   });
 
-  // 記錄今日實際市值
-  const existing = mvHistory.find(d=>d.date===todayKey);
-  if(existing){
-    existing.mv = totalMV;
-    existing.isEstimated = false;
-  } else {
-    mvHistory.push({date: todayKey, mv: totalMV});
+  // 記錄今日實際市值（僅在股價已載入時；否則會用成本價記出假的低點污染折線圖）
+  const pricesLoaded = Object.values(holdings).some(h=>h.currentPrice>0);
+  if(pricesLoaded){
+    const existing = mvHistory.find(d=>d.date===todayKey);
+    if(existing){
+      existing.mv = totalMV;
+      existing.isEstimated = false;
+    } else {
+      mvHistory.push({date: todayKey, mv: totalMV});
+    }
   }
 
   mvHistory.sort((a,b)=>a.date.localeCompare(b.date));
