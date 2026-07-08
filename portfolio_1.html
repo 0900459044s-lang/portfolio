@@ -1062,6 +1062,13 @@ function getCode(sym){return sym.includes(':')?sym.split(':')[1]:sym;}
 function getMarket(sym){return sym.startsWith('TWO:')?'OTC':'TSE';}
 // 本地日期字串 yyyy-MM-dd（避免 toISOString 用 UTC，台灣凌晨0–8點會記到前一天、污染歷史曲線）
 function localDateKey(d){d=d||new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+// 只留交易日：非交易日(週末/國定假日)市值沿用前一交易日→數值相同，去掉連續重複值即濾掉所有休市日；永遠保留最後一點(今日)
+function tradingDaysOnly(arr, key){
+  if(arr.length<=1) return arr.slice();
+  const out=[arr[0]];
+  for(let i=1;i<arr.length;i++){ if(i===arr.length-1 || arr[i][key]!==out[out.length-1][key]) out.push(arr[i]); }
+  return out;
+}
 function normSym(r){r=r.trim().toUpperCase();if(r.includes(':'))return r;const two=['3163','3260','5274','5299','5314','5425','6187','6640','6664','8027','8064'];return two.includes(r)?'TWO:'+r:'TPE:'+r;}
 
 // ══════════════════════════════════════════
@@ -2180,11 +2187,8 @@ function renderPerfCard(){
     }
   }
 
-  // 排除休市日（週六日）：不畫在折線圖、也不當區間起點；永遠保留最後一點(今日)
-  if(perfRange !== '1d' && filtered.length > 1){
-    const _last = filtered.length - 1;
-    filtered = filtered.filter((d,i)=>{const dw=new Date(d.date).getDay();return (dw!==0&&dw!==6)||i===_last;});
-  }
+  // 排除休市日（週末＋國定假日）：不畫在折線圖、也不當區間起點；永遠保留最後一點(今日)
+  if(perfRange !== '1d' && filtered.length > 1) filtered = tradingDaysOnly(filtered, 'mv');
 
   const rangeEl = document.getElementById('perfRangeChange');
   const rangeLabel = {'1d':'今日','5d':'過去5天','1m':'過去一個月','6m':'過去6個月','ytd':'年初至今','1y':'過去一年','all':'全部時間'}[perfRange];
@@ -3334,8 +3338,8 @@ function renderNetWorthChart(){
     return;
   }
   card.style.display='';
-  // 排除休市日（週六日），永遠保留最後一點(今日)
-  const nwPlot=nwHistory.filter((d,i)=>{const dw=new Date(d.date).getDay();return (dw!==0&&dw!==6)||i===nwHistory.length-1;});
+  // 排除休市日（週末＋國定假日）：去掉沿用前一交易日的重複值；永遠保留最後一點(今日)
+  const nwPlot=tradingDaysOnly(nwHistory, 'nw');
   const note=document.getElementById('nwTrendNote');
   const first=nwPlot[0], last=nwPlot[nwPlot.length-1];
   const diff=last.nw-first.nw;
