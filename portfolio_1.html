@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>我的財富管理</title>
+<!-- PWA：可安裝成手機/桌面 App -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b0f1a">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="財富管理">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -1073,6 +1081,7 @@ const BANK_LABEL={saving:'活儲',fixed:'定存',broker:'證券交割戶',other:
 const COLORS=['#3b82f6','#a855f7','#22c55e','#eab308','#f97316','#14b8a6','#ef4444','#ec4899','#06b6d4','#84cc16'];
 
 let customNames=JSON.parse(localStorage.getItem('pf_customnames')||'{}');   // 使用者自訂股票名稱（新股不在內建表時，打過一次就記住並同步雲端）
+let priceTargets=JSON.parse(localStorage.getItem('pf_pricetargets')||'{}'); // 目標價/停損 {sym:{hi,lo}}，達標時持股列顯示提示
 function getName(sym){const c=sym.includes(':')?sym.split(':')[1]:sym;return NAME_MAP[sym]||NAME_MAP[c]||customNames[sym]||customNames[c]||'';}
 function getCode(sym){return sym.includes(':')?sym.split(':')[1]:sym;}
 function getMarket(sym){return sym.startsWith('TWO:')?'OTC':'TSE';}
@@ -2286,6 +2295,17 @@ function renderPerfCard(){
           }
         }
       });
+      // 股息＝從投資組合領出的收益（視為提領），gain 會自動含息
+      cashTxns.forEach(c => {
+        if(c.type!=='dividend') return;
+        const dk = (c.date||'').replace(/\//g, '-');
+        const amt = Number(c.amount)||0;
+        if(amt>0 && dk > startKey && dk <= todayKey){
+          const w = (new Date(todayKey) - new Date(dk)) / periodMs;
+          netFlow -= amt;
+          weightedFlow -= amt * w;
+        }
+      });
       const gain = totalMV - startMV - netFlow;
       const denom = startMV + weightedFlow;
       const pctStr = denom > 0 ? `${gain>=0?'+':''}${(gain/denom*100).toFixed(2)}%` : '％無法計算（期間淨投入為負）';
@@ -2399,6 +2419,12 @@ function renderHoldingsTable(){
     const curW=curPrice/barMax*100;
     const priceBarColor=curPrice>=costPrice?'var(--green)':'var(--red)';
     const noLiveHint=!hasLivePrice ? ' <span style="color:var(--yellow);font-size:9px;cursor:help" title="目前無盤中成交價，可能為處置股（人工撮合）或暫無成交，已用昨收估算">⏳暫無成交</span>' : '';
+    // 目標價/停損達標徽章
+    const pt=priceTargets[h.sym];let ptBadge='';
+    if(pt&&h.currentPrice>0){
+      if(pt.hi>0&&h.currentPrice>=pt.hi) ptBadge=' <span class="badge b-green" title="現價已達你設定的目標價 '+pt.hi+'">🎯達標</span>';
+      else if(pt.lo>0&&h.currentPrice<=pt.lo) ptBadge=' <span class="badge b-red" title="現價已跌破你設定的停損價 '+pt.lo+'">🔻停損</span>';
+    }
 
     return `<tr style="cursor:pointer;${isConcentrated?'background:rgba(234,179,8,.04)':''}" onclick="toggleHoldingDetail('${h.sym}')" title="點擊展開批次明細／成交紀錄／股息">
       <td>
@@ -2406,7 +2432,7 @@ function renderHoldingsTable(){
           <span id="hd-arrow-${getCode(h.sym)}" style="color:var(--muted);font-size:10px">▶</span>
           <div style="background:${color};width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${getCode(h.sym).slice(-2)}</div>
           <div>
-            <div style="font-weight:600;font-size:12px">${name} ${isConcentrated?'<span style="color:var(--yellow);font-size:10px">⚠️</span>':''}</div>
+            <div style="font-weight:600;font-size:12px">${name}${ptBadge} ${isConcentrated?'<span style="color:var(--yellow);font-size:10px">⚠️</span>':''}</div>
             <div style="font-size:10px;color:var(--muted)">${getCode(h.sym)} · ${getMarket(h.sym)} · 持有 ${h.avgDays}天</div>
           </div>
         </div>
@@ -2462,6 +2488,17 @@ function toggleHoldingDetail(sym){
   else { row.style.display=''; if(arrow) arrow.textContent='▼'; openHoldingDetails.add(sym); renderHoldingDetail(sym); }
 }
 function switchHoldingTab(sym,tab){ holdingDetailTab[sym]=tab; renderHoldingDetail(sym); }
+// 目標價/停損：批次明細分頁裡設定，達標時持股列顯示 🎯達標 / 🔻停損
+function savePriceTarget(sym){
+  const code=getCode(sym);
+  const hi=parseFloat(document.getElementById('pt-hi-'+code)?.value)||0;
+  const lo=parseFloat(document.getElementById('pt-lo-'+code)?.value)||0;
+  if(hi>0||lo>0) priceTargets[sym]={hi,lo}; else delete priceTargets[sym];
+  localStorage.setItem('pf_pricetargets',JSON.stringify(priceTargets));
+  renderHoldingsTable();
+  if(typeof saveToCloud==='function') saveToCloud();
+  showToast(hi>0||lo>0?`🎯 已設定 ${getName(sym)||code}：目標 ${hi||'—'}／停損 ${lo||'—'}`:'已清除目標價');
+}
 function renderHoldingDetail(sym){
   const code=getCode(sym);
   const el=document.getElementById('hd-body-'+code);
@@ -2482,6 +2519,10 @@ function renderHoldingDetail(sym){
       ${lu!==null?`<span>漲停參考 <strong class="mono" style="color:var(--text)">${fmt2(lu)}</strong></span>`:''}
       ${ld!==null?`<span>跌停參考 <strong class="mono" style="color:var(--text)">${fmt2(ld)}</strong></span>`:''}
       <span style="font-size:9px;align-self:center">（依昨收 ±10%）</span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:4px" onclick="event.stopPropagation()">🎯 目標
+        <input id="pt-hi-${code}" type="number" step="0.01" min="0" value="${(priceTargets[sym]&&priceTargets[sym].hi)||''}" placeholder="—" onchange="savePriceTarget('${sym}')" style="width:64px;padding:2px 5px;background:var(--s3);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:10px;outline:none">
+        停損 <input id="pt-lo-${code}" type="number" step="0.01" min="0" value="${(priceTargets[sym]&&priceTargets[sym].lo)||''}" placeholder="—" onchange="savePriceTarget('${sym}')" style="width:64px;padding:2px 5px;background:var(--s3);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:10px;outline:none">
+      </span>
     </div>`;
     body = strip + (lots.length? `<div class="tbl-wrap"><table style="width:100%;font-size:11px;border-collapse:collapse">
       <tr style="color:var(--muted)"><th style="text-align:left;padding:4px 8px">買入日期</th><th class="r">股數</th><th class="r">每股成本</th><th class="r">總成本</th><th class="r">市值</th><th class="r">未實現損益</th><th class="r">持有天數</th></tr>
@@ -3312,6 +3353,7 @@ async function loadFromCloud(silent) {
       if (d.transfers)  { transfers     = d.transfers;   localStorage.setItem('pf_transfers', JSON.stringify(transfers)); }
       if (d.nwHistory)  { nwHistory     = d.nwHistory;   localStorage.setItem('pf_nwhistory', JSON.stringify(nwHistory)); }
       if (d.customNames){ customNames   = d.customNames; localStorage.setItem('pf_customnames', JSON.stringify(customNames)); }
+      if (d.priceTargets){ priceTargets = d.priceTargets; localStorage.setItem('pf_pricetargets', JSON.stringify(priceTargets)); }
       if (d.sheetsUrl && d.sheetsUrl !== SHEETS_URL) {
         SHEETS_URL = d.sheetsUrl;
         localStorage.setItem('gsheets_pub_url', SHEETS_URL);
@@ -3341,7 +3383,7 @@ async function saveToCloud() {
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
-      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers, customNames, sheetsUrl: SHEETS_URL, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers, customNames, priceTargets, sheetsUrl: SHEETS_URL, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
       method: 'POST',
@@ -3652,6 +3694,8 @@ function renderXIRR(){
     if(action==='買進') flows.push({date:d, amount:-(q*p - mg + f)});   // 融資買進實際流出只有自備款（券商墊 mg）
     else if(action==='賣出') flows.push({date:d, amount:q*p-f-tx});
   });
+  // 股息＝現金流入，計入年化報酬（含息總報酬，與 Yahoo 同口徑）
+  cashTxns.forEach(c=>{ if(c.type==='dividend'&&(Number(c.amount)||0)>0) flows.push({date:new Date(c.date.replace(/\//g,'-')), amount:+c.amount}); });
   const mv=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.prevClose||h.avgCost),0);  // 補昨收 fallback，與績效卡/持股表一致
   const equity=mv-marginBalance;   // 期末權益＝毛市值−未償融資餘額（融資是負債）
   if(equity>0) flows.push({date:new Date(), amount:equity});
@@ -3730,6 +3774,8 @@ loadFromCloud(true).then(() => {
   }
 });
 if(!SHEETS_URL) document.getElementById('lastUpdate').textContent='載入完成';
+// PWA：註冊 service worker（可安裝、離線可開）
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
 </script>
 </body>
 </html>

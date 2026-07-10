@@ -129,6 +129,8 @@ function fetchTseClose(sym, di) {
     if (data.stat === "OK" && data.data && data.data.length > 0) {
       var last  = data.data[data.data.length - 1];
       var close = parseFloat(last[6].replace(/,/g, ""));
+      var dp = last[0].split("/");   // 民國日期 → 西元（實際資料日，非執行日）
+      var dataDate = (parseInt(dp[0], 10) + 1911) + "/" + dp[1] + "/" + dp[2];
       var prev  = null;
       if (data.data.length > 1) {
         prev = parseFloat(data.data[data.data.length - 2][6].replace(/,/g, ""));
@@ -142,7 +144,7 @@ function fetchTseClose(sym, di) {
           prev = parseFloat(data2.data[data2.data.length - 1][6].replace(/,/g, ""));
         }
       }
-      if (close > 0) return { price: close, prev: prev };
+      if (close > 0) return { price: close, prev: prev, dataDate: dataDate };
     }
   } catch(e) { Logger.log("TSE close error " + sym + ": " + e.message); }
   return { price: null, prev: null };
@@ -163,6 +165,8 @@ function fetchOtcClose(sym, di) {
     var rows = otcMonthRows(sym, y + "/" + pad(m) + "/01");
     if (rows.length > 0) {
       var close = parseFloat(rows[rows.length - 1][6].replace(/,/g, ""));
+      var dp = rows[rows.length - 1][0].split("/");   // 民國 → 西元（實際資料日）
+      var dataDate = (parseInt(dp[0], 10) + 1911) + "/" + dp[1] + "/" + dp[2];
       var prev  = null;
       if (rows.length > 1) {
         prev = parseFloat(rows[rows.length - 2][6].replace(/,/g, ""));
@@ -172,7 +176,7 @@ function fetchOtcClose(sym, di) {
         var rows2 = otcMonthRows(sym, py + "/" + pad(pm2) + "/01");
         if (rows2.length > 0) prev = parseFloat(rows2[rows2.length - 1][6].replace(/,/g, ""));
       }
-      if (close > 0) return { price: close, prev: prev };
+      if (close > 0) return { price: close, prev: prev, dataDate: dataDate };
     }
   } catch(e) { Logger.log("OTC close error " + sym + ": " + e.message); }
   return { price: null, prev: null };
@@ -224,13 +228,36 @@ function updateClosePrices() {
   sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#1e2330").setFontColor("#e3b341");
 
   var results = {};
-  var failedSyms = [], staleSyms = [];
+  var failedSyms = [], staleSyms = [], badSyms = [];
+  var maxDataDate = "";   // 本次抓到的最新「實際交易日」（非執行日）
 
   // 逐檔抓收盤價（盤後 API 穩定，不需要重試）
   holdings.forEach(function(h) {
     var r = h.market === "tse"
       ? fetchTseClose(h.sym, di)
       : fetchOtcClose(h.sym, di);
+
+    // 報價防火牆：與上次已寫入價差 ±45% 以上視為壞資料（台股單日限±10%），沿用舊值
+    // 例外：同一可疑值連續兩次出現（除權息/分割等真實巨變，或舊值本來就錯）→ 自動接受
+    if (r.price !== null && oldData[h.key] && oldData[h.key].price > 0) {
+      var ratio = r.price / oldData[h.key].price;
+      var props = PropertiesService.getScriptProperties();
+      var suspKey = "suspect_" + h.key;
+      if (ratio > 1.45 || ratio < 0.55) {
+        var prevSusp = parseFloat(props.getProperty(suspKey) || "0");
+        if (prevSusp > 0 && Math.abs(prevSusp - r.price) <= r.price * 0.02) {
+          props.deleteProperty(suspKey);   // 連兩次一致 → 放行
+        } else {
+          props.setProperty(suspKey, String(r.price));
+          Logger.log("⚠️ 報價異常被擋 " + h.key + ": " + oldData[h.key].price + " → " + r.price);
+          badSyms.push(h.key);
+          r = { price: null, prev: null, dataDate: r.dataDate };
+        }
+      } else {
+        props.deleteProperty(suspKey);     // 正常值 → 清掉殘留可疑標記
+      }
+    }
+    if (r.dataDate && r.dataDate > maxDataDate) maxDataDate = r.dataDate;
 
     if (r.price !== null) {
       // 昨收抓不到時，沿用舊表的昨收（總比空白好）
@@ -257,7 +284,8 @@ function updateClosePrices() {
     var prev  = r.prev  != null ? r.prev  : "";
     var diff  = (price !== "" && prev !== "") ? Math.round((price - prev) * 100) / 100 : "";
     var pct   = (price !== "" && prev !== "" && prev > 0) ? Math.round((price - prev) / prev * 10000) / 100 : "";
-    return [h.key, getChineseName(h.key), price, prev, diff, pct, now, dateOnly];
+    var tradeDate = r.dataDate || maxDataDate || dateOnly;   // 顯示實際資料日（週末/假日執行時不再誤標今天）
+    return [h.key, getChineseName(h.key), price, prev, diff, pct, now, tradeDate];
   });
 
   sheet.getRange(2, 1, rows.length, 8).setValues(rows);
@@ -277,7 +305,7 @@ function updateClosePrices() {
     var r2 = results[h.key];
     if (r2 && r2.price) totalMV += h.qty * r2.price;
   });
-  if (totalMV > 0) recordHistory(dateOnly, Math.round(totalMV));
+  if (totalMV > 0) recordHistory(maxDataDate || dateOnly, Math.round(totalMV));   // 記在實際交易日，假日執行不再多出假日點
 
   var elapsed = ((new Date().getTime() - startTime) / 1000).toFixed(1);
   Logger.log("✅ 盤後更新完成，耗時 " + elapsed + " 秒");
@@ -286,6 +314,7 @@ function updateClosePrices() {
   msg += "成功更新：" + (rows.length - failedSyms.length - staleSyms.length) + "/" + rows.length + " 檔";
   if (staleSyms.length > 0) msg += "\n⏳ 沿用昨日資料：" + staleSyms.join("、");
   if (failedSyms.length > 0) msg += "\n⚠️ 完全失敗：" + failedSyms.join("、");
+  if (badSyms.length > 0) msg += "\n🛡️ 報價異常已擋（沿用舊值）：" + badSyms.join("、") + "\n（若為除權息等真實變動，再跑一次即會接受）";
 
   safeAlert(msg);
   return {
@@ -293,6 +322,7 @@ function updateClosePrices() {
     total: rows.length,
     stale: staleSyms,
     failed: failedSyms,
+    blocked: badSyms,
     prices: results
   };
 }

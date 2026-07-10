@@ -1,0 +1,15 @@
+{
+  "name": "我的財富管理",
+  "short_name": "財富管理",
+  "description": "個人台股投資組合與財富追蹤",
+  "start_url": "./portfolio_1.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0f1a",
+  "theme_color": "#0b0f1a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
