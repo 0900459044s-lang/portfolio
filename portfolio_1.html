@@ -1348,6 +1348,25 @@ function computeAll(){
 // ══════════════════════════════════════════
 // Price fetch
 // ══════════════════════════════════════════
+// 報價防火牆：新價格與上次已接受價差 ±45% 以上視為可疑（台股單日限±10%，345%跳動必為壞資料）
+// 例外：同一可疑值連續出現兩次（除權息/股票分割等真實巨變）→ 自動接受
+let lastPrices=JSON.parse(localStorage.getItem('pf_lastprices')||'{}');
+function priceGuard(sym,price){
+  const rec=lastPrices[sym];
+  if(rec&&rec.p>0){
+    const r=price/rec.p;
+    if(r>1.45||r<0.55){
+      if(!(rec.suspect&&Math.abs(rec.suspect-price)<=price*0.02)){
+        rec.suspect=price;localStorage.setItem('pf_lastprices',JSON.stringify(lastPrices));
+        console.warn(`⚠️ 報價異常被擋：${sym} ${rec.p} → ${price}（差${((r-1)*100).toFixed(0)}%），若為除權息屬真實，下次更新會自動接受`);
+        return false;
+      }
+    }
+  }
+  lastPrices[sym]={p:price,d:localDateKey()};
+  localStorage.setItem('pf_lastprices',JSON.stringify(lastPrices));
+  return true;
+}
 function parseCSV(line){const r=[];let c='',q=false;for(const ch of line){if(ch==='"'){q=!q;}else if(ch===','&&!q){r.push(c);c='';}else{c+=ch;}}r.push(c);return r;}
 
 async function refreshPrices(){
@@ -1360,17 +1379,21 @@ async function refreshPrices(){
     const r=await fetch(url,{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status);
     const text=await r.text();
-    let cnt=0;
+    let cnt=0;const blocked=[];
     for(const line of text.trim().split('\n')){
       const cols=parseCSV(line);
       const sym=(cols[0]||'').trim().replace(/"/g,'');
       const price=parseFloat(cols[2]),prev=parseFloat(cols[3]);
       if(!sym||!sym.includes(':'))continue;
-      if(holdings[sym]&&price>0){holdings[sym].currentPrice=price;if(prev>0)holdings[sym].prevClose=prev;cnt++;}
+      if(holdings[sym]&&price>0){
+        if(!priceGuard(sym,price)){blocked.push(getName(sym)||getCode(sym));continue;}   // 壞資料不套用
+        holdings[sym].currentPrice=price;if(prev>0)holdings[sym].prevClose=prev;cnt++;
+      }
     }
     const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
     if(cnt>0){st.textContent=`📈 股價已更新 ${t}（${cnt} 檔）`;st.style.color='var(--green)';up.textContent='股價更新於 '+t+'，每 5 分鐘自動更新';}
     else{st.textContent='⚠️ 報價表沒有對到持股，點此檢查';st.style.color='var(--orange)';}
+    if(blocked.length){st.textContent+=`；🛡️ ${blocked.join('、')} 報價異常已擋下`;st.style.color='var(--orange)';showToast(`🛡️ ${blocked.join('、')} 的報價跳動超過±45%，疑似壞資料已擋下（去 Google Sheets 重跑「更新今日收盤價」修正；若為除權息等真實變動，下次更新會自動接受）`,6000);}
   }catch(e){st.textContent='❌ 報價連線失敗，點此檢查設定';st.style.color='var(--red)';}
   renderAll();
 }
@@ -1407,7 +1430,7 @@ async function pullPricesFromGAS(needSync){
     if(j&&j.ok&&j.result&&j.result.prices){
       for(const sym in j.result.prices){
         const p=j.result.prices[sym];
-        if(holdings[sym]&&p&&p.price>0){holdings[sym].currentPrice=p.price;if(p.prev>0)holdings[sym].prevClose=p.prev;cnt++;}
+        if(holdings[sym]&&p&&p.price>0&&priceGuard(sym,p.price)){holdings[sym].currentPrice=p.price;if(p.prev>0)holdings[sym].prevClose=p.prev;cnt++;}
       }
       if(cnt>0) renderAll();
     }
