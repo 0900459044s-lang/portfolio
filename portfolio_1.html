@@ -799,6 +799,9 @@ td.r{text-align:right}
   <div class="fg-row">
     <div class="fg"><label>代號（如 2330）</label><input type="text" id="tSym" oninput="autoFillName()"></div>
     <div class="fg"><label>名稱</label><input type="text" id="tName" placeholder="自動帶入"></div>
+    <div class="fg"><label>市場 <span style="color:var(--muted);font-weight:400">（新上櫃股請手選）</span></label>
+      <select id="tMarket"><option value="auto">自動判斷</option><option value="TPE">上市</option><option value="TWO">上櫃</option></select>
+    </div>
   </div>
   <div id="tLastHint" style="display:none;padding:7px 10px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:7px;font-size:11px;color:var(--muted);margin-bottom:10px"></div>
   <div class="fg-row">
@@ -1785,6 +1788,7 @@ function openTradeModal(sym){
   document.getElementById('tAction').value='買進';
   ['tQty','tPrice','tFee','tTax','tSelfPay'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('tMargin').value='0';
+  const _mk=document.getElementById('tMarket'); if(_mk)_mk.value = sym ? (sym.startsWith('TWO:')?'TWO':'TPE') : 'auto';
   autoFillName();   // 帶入「上次記到哪」提示
   document.getElementById('tradeModal').classList.add('open');
 }
@@ -1831,7 +1835,9 @@ function autoFillName(){
 function saveTrade(){
   const rawSym=document.getElementById('tSym').value.trim();
   if(!rawSym){showToast('請填入股票代號');return;}
-  const sym=normSym(rawSym);
+  const mkt=document.getElementById('tMarket')?.value||'auto';
+  const sym = rawSym.includes(':') ? rawSym.toUpperCase()
+            : (mkt==='auto' ? normSym(rawSym) : mkt+':'+rawSym.toUpperCase());   // 手選市場優先（新上櫃股不在寫死清單內）
   const action=document.getElementById('tAction').value;
   const qty=parseInt(document.getElementById('tQty').value)||0;
   const price=parseFloat(document.getElementById('tPrice').value)||0;
@@ -1853,9 +1859,10 @@ function saveTrade(){
     trades.push(newTrade);
     showToast(`✅ ${action} ${getName(sym)||getCode(sym)} 已記錄`);
   }
-  saveAll();closeModals();computeAll();renderAll();
+  computeAll();computeOwnCash();   // 先重算持股/融資/證券戶餘額，雲端才不會存到舊值
+  saveAll();closeModals();renderAll();
 }
-function deleteTrade(i){if(!confirm('確定刪除？'))return;trades.splice(i,1);saveAll();computeAll();renderAll();showToast('已刪除');}
+function deleteTrade(i){if(!confirm('確定刪除？'))return;trades.splice(i,1);computeAll();computeOwnCash();saveAll();renderAll();showToast('已刪除');}
 
 // ── Bank modal ──
 function openBankModal(){
@@ -2335,13 +2342,15 @@ function renderHoldingsTable(){
   });
   const totalMV=rows.reduce((s,h)=>s+h.mv,0);
 
-  // 集中度警示
+  // 集中度警示 + 超賣警示（賣出量>持有＝疑漏記買進，一定要讓使用者看到）
   const warnings=rows.filter(h=>totalMV>0&&h.mv/totalMV>0.3);
   const warnEl=document.getElementById('holdingStatus');
+  const osList=[...new Set(window.oversellSyms||[])];
+  const osWarn=osList.length?`<span style="color:var(--red)" title="這些股票的賣出股數超過已記錄的買進，可能漏記了買進交易；超賣部分已排除、不計入損益">🚨 ${osList.map(s=>getName(s)||getCode(s)).join('、')} 賣出量＞持有（疑漏記買進）</span>　`:'';
   if(warnings.length>0){
-    warnEl.innerHTML=`<span style="color:var(--yellow)">⚠️ ${warnings.map(h=>getName(h.sym)||getCode(h.sym)).join('、')} 集中度超過 30%</span>`;
+    warnEl.innerHTML=osWarn+`<span style="color:var(--yellow)">⚠️ ${warnings.map(h=>getName(h.sym)||getCode(h.sym)).join('、')} 集中度超過 30%</span>`;
   } else {
-    warnEl.textContent=rows.length+' 檔持倉';
+    warnEl.innerHTML=osWarn+rows.length+' 檔持倉';
   }
 
   document.getElementById('holdingsTbl').innerHTML=rows.length?rows.map((h,i)=>{
@@ -2398,19 +2407,29 @@ function renderHoldingsTable(){
     <tr id="hd-${getCode(h.sym)}" style="display:none"><td colspan="8" style="background:var(--s1);padding:12px 16px" id="hd-body-${getCode(h.sym)}"></td></tr>`;
   }).join(''):`<tr><td colspan="8"><div style="text-align:center;padding:40px;color:var(--muted)">尚無持倉</div></td></tr>`;
 
+  // 重繪後恢復先前展開的明細（每5分鐘自動更新股價時不再被收合）
+  openHoldingDetails.forEach(sym=>{
+    const code=getCode(sym);
+    const row=document.getElementById('hd-'+code);
+    const arrow=document.getElementById('hd-arrow-'+code);
+    if(row){ row.style.display=''; if(arrow) arrow.textContent='▼'; renderHoldingDetail(sym); }
+    else openHoldingDetails.delete(sym);   // 已平倉就清掉
+  });
+
   // 若目前是圖表視圖，同步更新
   if(holdingView==='chart') renderUnrealChart();
 }
 
 // ── Yahoo 式持股明細：點持倉列展開 批次明細/成交紀錄/股息 ──
 let holdingDetailTab = {};
+let openHoldingDetails = new Set();   // 記住展開中的股票，renderAll 重繪後自動重新展開
 function toggleHoldingDetail(sym){
   const code=getCode(sym);
   const row=document.getElementById('hd-'+code);
   if(!row) return;
   const arrow=document.getElementById('hd-arrow-'+code);
-  if(row.style.display!=='none'){ row.style.display='none'; if(arrow) arrow.textContent='▶'; }
-  else { row.style.display=''; if(arrow) arrow.textContent='▼'; renderHoldingDetail(sym); }
+  if(row.style.display!=='none'){ row.style.display='none'; if(arrow) arrow.textContent='▶'; openHoldingDetails.delete(sym); }
+  else { row.style.display=''; if(arrow) arrow.textContent='▼'; openHoldingDetails.add(sym); renderHoldingDetail(sym); }
 }
 function switchHoldingTab(sym,tab){ holdingDetailTab[sym]=tab; renderHoldingDetail(sym); }
 function renderHoldingDetail(sym){
@@ -3217,6 +3236,7 @@ function startEditTrade(idx){
   document.getElementById('tFee').value    = t[5];
   document.getElementById('tTax').value    = t[6];
   document.getElementById('tMargin').value = t[7]||0;
+  const _mk2=document.getElementById('tMarket'); if(_mk2)_mk2.value = t[1].startsWith('TWO:')?'TWO':'TPE';   // 編輯保留原市場
   autoCalcMargin();
   const _h=document.getElementById('tLastHint'); if(_h)_h.style.display='none';   // 編輯模式不顯示提示
   document.getElementById('tradeMTitle').textContent = '✏️ 編輯交易記錄';
