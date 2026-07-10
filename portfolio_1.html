@@ -796,6 +796,7 @@ td.r{text-align:right}
     <div class="fg"><label>代號（如 2330）</label><input type="text" id="tSym" oninput="autoFillName()"></div>
     <div class="fg"><label>名稱</label><input type="text" id="tName" placeholder="自動帶入"></div>
   </div>
+  <div id="tLastHint" style="display:none;padding:7px 10px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:7px;font-size:11px;color:var(--muted);margin-bottom:10px"></div>
   <div class="fg-row">
     <div class="fg"><label>股數</label><input type="number" id="tQty" min="0" oninput="autoCalcFee()"></div>
     <div class="fg"><label>成交價</label><input type="number" id="tPrice" step="0.01" oninput="autoCalcFee()"></div>
@@ -948,13 +949,16 @@ td.r{text-align:right}
   <div class="fg-row">
     <div class="fg"><label>日期</label><input type="date" id="ctDate"></div>
     <div class="fg"><label>類型</label>
-      <select id="ctType">
+      <select id="ctType" onchange="onCtTypeChange()">
         <option value="deposit">存入（入金）</option>
         <option value="withdraw">提取（出金）</option>
         <option value="dividend">股息收入</option>
         <option value="expense">費用支出</option>
       </select>
     </div>
+  </div>
+  <div class="fg" id="ctSymRow" style="display:none"><label>股息來源個股</label>
+    <select id="ctSym"><option value="">不指定</option></select>
   </div>
   <div class="fg"><label>金額（TWD）</label><input type="number" id="ctAmount" min="0" placeholder="0"></div>
   <div class="fg"><label>備註</label><input type="text" id="ctNote" placeholder="可選填，例如：媽媽贈助、娃娃機增資"></div>
@@ -1294,7 +1298,7 @@ function computeAll(){
     const[date,sym,action,qty,price,fee,tax,margin]=t;
     if(!(Number(qty)>0)||!(Number(price)>0))continue;   // #22 防呆：略過股數/價格<=0 的異常資料，避免 NaN/Infinity
     if(!inv[sym])inv[sym]=[];
-    if(action==='買進'){inv[sym].push({qty,price,totalFee:fee,mps:(Number(margin)||0)/qty});}
+    if(action==='買進'){inv[sym].push({qty,price,totalFee:fee,mps:(Number(margin)||0)/qty,date});}
     else if(action==='賣出'){
       let rem=qty,buyCost=0,buyFee=0;const newLots=[];
       for(const lot of inv[sym]){
@@ -1302,7 +1306,7 @@ function computeAll(){
         const use=Math.min(rem,lot.qty);
         buyCost+=use*lot.price;buyFee+=(use/lot.qty)*lot.totalFee;
         rem-=use;
-        if(lot.qty-use>0)newLots.push({qty:lot.qty-use,price:lot.price,totalFee:lot.totalFee*(lot.qty-use)/lot.qty,mps:lot.mps||0});
+        if(lot.qty-use>0)newLots.push({qty:lot.qty-use,price:lot.price,totalFee:lot.totalFee*(lot.qty-use)/lot.qty,mps:lot.mps||0,date:lot.date});
       }
       inv[sym]=newLots;
       const soldQty=qty-rem;                 // 實際配對到的股數（防超賣：超賣部分不計損益）
@@ -1318,7 +1322,7 @@ function computeAll(){
     marginBalance+=lotMargin;
     const totalQty=lots.reduce((s,l)=>s+l.qty,0);if(totalQty<=0)continue;
     const totalCost=lots.reduce((s,l)=>s+l.qty*l.price,0);
-    holdings[sym]={sym,qty:totalQty,avgCost:totalCost/totalQty,currentPrice:null,prevClose:null,margin:lotMargin};
+    holdings[sym]={sym,qty:totalQty,avgCost:totalCost/totalQty,currentPrice:null,prevClose:null,margin:lotMargin,lots:lots.filter(l=>l.qty>0)};
   }
 }
 
@@ -1766,6 +1770,7 @@ function openTradeModal(sym){
   document.getElementById('tAction').value='買進';
   ['tQty','tPrice','tFee','tTax','tSelfPay'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('tMargin').value='0';
+  autoFillName();   // 帶入「上次記到哪」提示
   document.getElementById('tradeModal').classList.add('open');
 }
 
@@ -1793,7 +1798,21 @@ function autoCalcMargin(){
   const el=document.getElementById('tSelfPay');
   if(el) el.value = (qty>0&&price>0) ? Math.round(self) : '';
 }
-function autoFillName(){const sym=normSym(document.getElementById('tSym').value.trim());document.getElementById('tName').value=getName(sym)||'';}
+function autoFillName(){
+  const raw=document.getElementById('tSym').value.trim();
+  const sym=raw?normSym(raw):'';
+  document.getElementById('tName').value=sym?(getName(sym)||''):'';
+  // 「上次記到哪」提示：輸入代號立刻看到這檔最後 1 筆已記錄的交易，補單不怕重複或漏記
+  const hint=document.getElementById('tLastHint');
+  if(!hint) return;
+  if(!sym||raw.length<3){ hint.style.display='none'; return; }
+  const my=trades.filter(t=>t[1]===sym).sort((a,b)=>a[0].localeCompare(b[0]));
+  if(!my.length){ hint.style.display=''; hint.innerHTML='🆕 這檔尚無任何交易紀錄（第一筆）'; return; }
+  const last=my[my.length-1];
+  const held=holdings[sym]?fmt(holdings[sym].qty)+' 股':'已平倉';
+  hint.style.display='';
+  hint.innerHTML=`📌 上次記錄：<strong style="color:var(--text)">${last[0]}</strong> <span style="color:${last[2]==='買進'?'var(--green)':'var(--red)'}">${last[2]}</span> ${fmt(last[3])} 股 @ ${fmt2(last[4])}　·　共 ${my.length} 筆　·　目前持有 ${held}`;
+}
 function saveTrade(){
   const rawSym=document.getElementById('tSym').value.trim();
   if(!rawSym){showToast('請填入股票代號');return;}
@@ -2327,9 +2346,10 @@ function renderHoldingsTable(){
     const priceBarColor=curPrice>=costPrice?'var(--green)':'var(--red)';
     const noLiveHint=!hasLivePrice ? ' <span style="color:var(--yellow);font-size:9px;cursor:help" title="目前無盤中成交價，可能為處置股（人工撮合）或暫無成交，已用昨收估算">⏳暫無成交</span>' : '';
 
-    return `<tr style="${isConcentrated?'background:rgba(234,179,8,.04)':''}">
+    return `<tr style="cursor:pointer;${isConcentrated?'background:rgba(234,179,8,.04)':''}" onclick="toggleHoldingDetail('${h.sym}')" title="點擊展開批次明細／成交紀錄／股息">
       <td>
         <div style="display:flex;align-items:center;gap:7px">
+          <span id="hd-arrow-${getCode(h.sym)}" style="color:var(--muted);font-size:10px">▶</span>
           <div style="background:${color};width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0">${getCode(h.sym).slice(-2)}</div>
           <div>
             <div style="font-weight:600;font-size:12px">${name} ${isConcentrated?'<span style="color:var(--yellow);font-size:10px">⚠️</span>':''}</div>
@@ -2358,12 +2378,83 @@ function renderHoldingsTable(){
       <td><span class="ptag ${h.unreal>=0?'ptag-pos':'ptag-neg'}">${(h.unreal>=0?'+':'')+fmtTWD(h.unreal)}</span></td>
       <td class="mono r ${h.pct>=0?'pos':'neg'}">${(h.pct>=0?'+':'')+h.pct.toFixed(2)}%</td>
       <td class="mono r ${td!==null?(td>=0?'pos':'neg'):'neu'}">${td!==null?`${(td>=0?'+':'')+fmtTWD(td)}<div style="font-size:10px;opacity:.8">${(h.currentPrice-h.prevClose>=0?'+':'')+((h.currentPrice-h.prevClose)/h.prevClose*100).toFixed(2)}%</div>`:'—'}</td>
-      <td><button class="btn-ghost" onclick="openTradeModal('${h.sym}')">＋</button></td>
-    </tr>`;
+      <td><button class="btn-ghost" onclick="event.stopPropagation();openTradeModal('${h.sym}')">＋</button></td>
+    </tr>
+    <tr id="hd-${getCode(h.sym)}" style="display:none"><td colspan="8" style="background:var(--s1);padding:12px 16px" id="hd-body-${getCode(h.sym)}"></td></tr>`;
   }).join(''):`<tr><td colspan="8"><div style="text-align:center;padding:40px;color:var(--muted)">尚無持倉</div></td></tr>`;
 
   // 若目前是圖表視圖，同步更新
   if(holdingView==='chart') renderUnrealChart();
+}
+
+// ── Yahoo 式持股明細：點持倉列展開 批次明細/成交紀錄/股息 ──
+let holdingDetailTab = {};
+function toggleHoldingDetail(sym){
+  const code=getCode(sym);
+  const row=document.getElementById('hd-'+code);
+  if(!row) return;
+  const arrow=document.getElementById('hd-arrow-'+code);
+  if(row.style.display!=='none'){ row.style.display='none'; if(arrow) arrow.textContent='▶'; }
+  else { row.style.display=''; if(arrow) arrow.textContent='▼'; renderHoldingDetail(sym); }
+}
+function switchHoldingTab(sym,tab){ holdingDetailTab[sym]=tab; renderHoldingDetail(sym); }
+function renderHoldingDetail(sym){
+  const code=getCode(sym);
+  const el=document.getElementById('hd-body-'+code);
+  if(!el) return;
+  const tab=holdingDetailTab[sym]||'lots';
+  const tabs=[['lots','📦 批次明細'],['txns','📋 成交紀錄'],['divs','💰 股息']];
+  const tabBar=tabs.map(([k,label])=>`<button onclick="switchHoldingTab('${sym}','${k}')" style="padding:5px 12px;border-radius:6px;border:1px solid ${tab===k?'var(--blue)':'var(--border)'};background:${tab===k?'rgba(59,130,246,.15)':'var(--s2)'};color:${tab===k?'var(--blue)':'var(--muted)'};font-size:11px;cursor:pointer;font-family:inherit">${label}</button>`).join('');
+  let body='';
+  const h=holdings[sym];
+  if(tab==='lots'){
+    // 每一手（FIFO 剩餘批次）：買入日期/股數/成本/市值/損益——「上次買到哪」一目了然
+    const p=h?(h.currentPrice||h.prevClose||h.avgCost):0;
+    const lots=(h&&h.lots)?h.lots:[];
+    body = lots.length? `<div class="tbl-wrap"><table style="width:100%;font-size:11px;border-collapse:collapse">
+      <tr style="color:var(--muted)"><th style="text-align:left;padding:4px 8px">買入日期</th><th class="r">股數</th><th class="r">每股成本</th><th class="r">總成本</th><th class="r">市值</th><th class="r">未實現損益</th><th class="r">持有天數</th></tr>
+      ${lots.map(l=>{
+        const cost=l.qty*l.price, mv=l.qty*p, un=mv-cost, pc=cost>0?un/cost*100:0;
+        const days=l.date?Math.floor((new Date()-new Date(l.date.replace(/\//g,'-')))/86400000):'—';
+        return `<tr style="border-top:1px solid var(--border)">
+          <td class="mono" style="padding:5px 8px">${l.date||'—'}${l.mps>0?' <span style="color:var(--orange);font-size:9px">融資</span>':''}</td>
+          <td class="mono r">${fmt(l.qty)}</td><td class="mono r">${fmt2(l.price)}</td><td class="mono r">${fmtTWD(cost)}</td>
+          <td class="mono r">${fmtTWD(mv)}</td>
+          <td class="mono r" style="color:${un>=0?'var(--green)':'var(--red)'}">${(un>=0?'+':'')+fmtTWD(un)} (${(pc>=0?'+':'')+pc.toFixed(2)}%)</td>
+          <td class="mono r">${days} 天</td></tr>`;
+      }).join('')}
+    </table></div>`:'<div style="color:var(--muted);padding:12px;text-align:center;font-size:11px">無持有批次</div>';
+  } else if(tab==='txns'){
+    const symTrades=trades.map((t,i)=>({t,i})).filter(({t})=>t[1]===sym).sort((a,b)=>b.t[0].localeCompare(a.t[0]));
+    body = symTrades.length? `<div class="tbl-wrap"><table style="width:100%;font-size:11px;border-collapse:collapse">
+      <tr style="color:var(--muted)"><th style="text-align:left;padding:4px 8px">日期</th><th>類別</th><th class="r">股數 @ 價格</th><th class="r">手續費+稅</th><th class="r">已實現損益</th><th></th></tr>
+      ${symTrades.map(({t,i})=>{
+        const [date,,action,qty,price,fee,tax]=t;
+        const real=action==='賣出'?(realizedList.filter(r=>r.sym===sym&&r.date===date&&r.sellPrice===price).pop()||null):null;
+        return `<tr style="border-top:1px solid var(--border)">
+          <td class="mono" style="padding:5px 8px">${date}</td>
+          <td style="color:${action==='買進'?'var(--green)':'var(--red)'};font-weight:600">${action}</td>
+          <td class="mono r">${fmt(qty)} @ ${fmt2(price)}</td>
+          <td class="mono r" style="color:var(--muted)">${fmt((Number(fee)||0)+(Number(tax)||0))}</td>
+          <td class="mono r">${real?`<span style="color:${real.net>=0?'var(--green)':'var(--red)'}">${(real.net>=0?'+':'')+fmtTWD(real.net)}</span>`:'—'}</td>
+          <td style="text-align:right"><button class="btn-ghost" onclick="startEditTrade(${i})" style="padding:1px 5px;font-size:10px">✏️</button></td></tr>`;
+      }).join('')}
+    </table></div>`:'<div style="color:var(--muted);padding:12px;text-align:center;font-size:11px">無交易紀錄</div>';
+  } else {
+    const divs=cashTxns.map((c,i)=>({c,i})).filter(({c})=>c.type==='dividend'&&c.sym===sym).sort((a,b)=>b.c.date.localeCompare(a.c.date));
+    const total=divs.reduce((s,{c})=>s+(c.amount||0),0);
+    body = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:var(--muted)">累計股息 <strong style="color:var(--teal,#14b8a6)">${fmtTWD(total)}</strong>（${divs.length} 筆）</span>
+        <button class="btn btn-secondary btn-sm" onclick="openDividendModal('${sym}')" style="font-size:11px">＋ 新增股息</button>
+      </div>`+
+      (divs.length? divs.map(({c,i})=>`<div style="display:flex;gap:8px;padding:5px 8px;background:var(--s2);border-radius:6px;margin-bottom:4px;font-size:11px;align-items:center">
+        <span class="mono" style="color:var(--muted)">${c.date}</span>
+        <span style="flex:1;color:var(--muted)">${c.note||''}</span>
+        <span class="mono" style="color:var(--teal,#14b8a6);font-weight:700">+${fmtTWD(c.amount)}</span>
+        <button onclick="deleteCashTxn(${i})" style="background:none;border:none;color:var(--muted);cursor:pointer">✕</button>
+      </div>`).join(''):'<div style="color:var(--muted);padding:8px;text-align:center;font-size:11px">尚無股息紀錄——收到股息時點「＋新增股息」記一筆，會自動計入證券戶現金水位</div>');
+  }
+  el.innerHTML=`<div style="display:flex;gap:6px;margin-bottom:10px">${tabBar}</div>${body}`;
 }
 
 // ── 圖表開關狀態 ──
@@ -2701,7 +2792,7 @@ function renderCashTxnList(){
     const c = CT_COLOR[t.type]||'var(--muted)';
     return `<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--s2);border-radius:7px">
       <span style="font-size:10px;color:var(--muted);min-width:76px;font-family:'JetBrains Mono',monospace">${t.date}</span>
-      <span style="padding:1px 6px;border-radius:4px;background:${c}22;color:${c};font-size:9px;font-weight:600;white-space:nowrap">${CT_LABEL[t.type]||t.type}</span>
+      <span style="padding:1px 6px;border-radius:4px;background:${c}22;color:${c};font-size:9px;font-weight:600;white-space:nowrap">${CT_LABEL[t.type]||t.type}${t.sym?'・'+(getName(t.sym)||getCode(t.sym)):''}</span>
       <span style="flex:1;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.note||''}</span>
       <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:${c}">${CT_SIGN[t.type]||''}${fmtTWD(t.amount)}</span>
       <button onclick="deleteCashTxn(${idx})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0 2px;line-height:1">✕</button>
@@ -2715,28 +2806,59 @@ function openCashTxnModal(){
   document.getElementById('ctType').value = 'deposit';
   document.getElementById('ctAmount').value = '';
   document.getElementById('ctNote').value = '';
+  populateCtSym();
+  onCtTypeChange();
   document.getElementById('cashTxnModal').classList.add('open');
+}
+
+// 股息來源個股下拉：列出所有交易過的股票（持有中在前）
+function populateCtSym(){
+  const sel=document.getElementById('ctSym');
+  if(!sel) return;
+  const all=[...new Set(trades.map(t=>t[1]))];
+  all.sort((a,b)=>{const ah=holdings[a]?0:1, bh=holdings[b]?0:1; return ah-bh || a.localeCompare(b);});
+  sel.innerHTML='<option value="">不指定</option>'+all.map(s=>`<option value="${s}">${getName(s)||getCode(s)}（${getCode(s)}）${holdings[s]?'':'・已平倉'}</option>`).join('');
+}
+function onCtTypeChange(){
+  const row=document.getElementById('ctSymRow');
+  if(row) row.style.display = document.getElementById('ctType').value==='dividend' ? '' : 'none';
+}
+// 從持股明細的「股息」分頁一鍵開窗：類型/個股/備註都帶好
+function openDividendModal(sym){
+  openCashTxnModal();
+  document.getElementById('ctType').value='dividend';
+  onCtTypeChange();
+  const sel=document.getElementById('ctSym');
+  if(sel) sel.value=sym;
+  document.getElementById('ctNote').value=(getName(sym)||getCode(sym))+' 現金股利';
 }
 
 function saveCashTxn(){
   const amount = parseFloat(document.getElementById('ctAmount').value)||0;
   if(amount<=0){ alert('請填入金額'); return; }
-  cashTxns.push({
+  const type = document.getElementById('ctType').value;
+  const rec = {
     date: document.getElementById('ctDate').value.replace(/-/g,'/'),
-    type: document.getElementById('ctType').value,
+    type,
     amount,
     note: document.getElementById('ctNote').value.trim()
-  });
+  };
+  const symSel=document.getElementById('ctSym');
+  if(type==='dividend' && symSel && symSel.value) rec.sym=symSel.value;   // 股息綁定個股（Yahoo 式）
+  cashTxns.push(rec);
   localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
   closeModals();
   renderCashSummary();renderOverview();renderBank();
+  if(rec.sym) renderHoldingDetail(rec.sym);   // 若明細展開中，即時刷新股息分頁
   if(typeof saveToCloud==='function') saveToCloud();
 }
 
 function deleteCashTxn(i){
   if(!confirm('確定刪除這筆記錄？')) return;
+  const _sym=cashTxns[i]&&cashTxns[i].sym;
   cashTxns.splice(i,1);
   localStorage.setItem('pf_cashtxns', JSON.stringify(cashTxns));
+  if(_sym) renderHoldingDetail(_sym);   // 股息分頁展開中則即時刷新
   renderCashSummary();renderOverview();renderBank();
   if(typeof saveToCloud==='function') saveToCloud();
 }
@@ -3014,6 +3136,7 @@ function startEditTrade(idx){
   document.getElementById('tTax').value    = t[6];
   document.getElementById('tMargin').value = t[7]||0;
   autoCalcMargin();
+  const _h=document.getElementById('tLastHint'); if(_h)_h.style.display='none';   // 編輯模式不顯示提示
   document.getElementById('tradeMTitle').textContent = '✏️ 編輯交易記錄';
   document.getElementById('tradeModal').classList.add('open');
 }
