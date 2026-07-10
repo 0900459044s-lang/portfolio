@@ -36,14 +36,15 @@ var NAME_MAP = {
   "009812":"野村日本東證","2201":"裕隆","2308":"台達電",
   "2327":"國巨","2330":"台積電","2383":"台光電","2408":"南亞科",
   "2449":"京元電子","2454":"聯發科","2472":"立隆電","3026":"禾伸堂",
-  "3037":"欣興","3042":"晶技","3481":"群創","6257":"矽格","6442":"光聖",
+  "3037":"欣興","3042":"晶技","3481":"群創","3711":"日月光投控","6257":"矽格","6442":"光聖",
   "3163":"波若威","3260":"威剛","5274":"信驊","5299":"杰力","5314":"世紀",
   "5425":"台半","6187":"萬潤","6640":"均華","6664":"群翊",
   "8027":"鈦昇","8064":"東捷","00981A":"主動統一台股增長"
 };
+var CUSTOM_NAMES = {};   // 由 user_data 載入使用者在網頁自訂的名稱，Sheet 顯示與 App 一致
 function getChineseName(sym) {
   var code = sym.split(":")[1];
-  return NAME_MAP[code] || sym;
+  return NAME_MAP[code] || CUSTOM_NAMES[sym] || CUSTOM_NAMES[code] || sym;
 }
 
 // ── 從 user_data 讀取持股 ──
@@ -55,6 +56,7 @@ function getHoldingsFromUserData() {
   if (!raw) return [];
   var data;
   try { data = JSON.parse(raw); } catch(e) { return []; }
+  CUSTOM_NAMES = data.customNames || {};   // 載入網頁端自訂名稱
   var trades = data.trades || [];
   if (!trades.length) return [];
   var qtyMap = {};

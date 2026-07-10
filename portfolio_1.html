@@ -1061,7 +1061,7 @@ const NAME_MAP={
   "009812":"野村日本東證","2201":"裕隆","2308":"台達電",
   "2327":"國巨","2330":"台積電","2383":"台光電","2408":"南亞科",
   "2449":"京元電子","2454":"聯發科","2472":"立隆電","3026":"禾伸堂",
-  "3037":"欣興","3042":"晶技","3481":"群創","6257":"矽格","6442":"光聖",
+  "3037":"欣興","3042":"晶技","3481":"群創","3711":"日月光投控","6257":"矽格","6442":"光聖",
   "00981A":"主動統一台股增長",
   "TWO:3163":"波若威","TWO:3260":"威剛","TWO:5274":"信驊","TWO:5299":"杰力",
   "TWO:5314":"世紀","TWO:5425":"台半","TWO:6187":"萬潤",
@@ -1072,7 +1072,8 @@ const DEBT_LABEL={loan:'信用貸款',mortgage:'房貸',card:'信用卡',other:'
 const BANK_LABEL={saving:'活儲',fixed:'定存',broker:'證券交割戶',other:'其他'};
 const COLORS=['#3b82f6','#a855f7','#22c55e','#eab308','#f97316','#14b8a6','#ef4444','#ec4899','#06b6d4','#84cc16'];
 
-function getName(sym){const c=sym.includes(':')?sym.split(':')[1]:sym;return NAME_MAP[sym]||NAME_MAP[c]||'';}
+let customNames=JSON.parse(localStorage.getItem('pf_customnames')||'{}');   // 使用者自訂股票名稱（新股不在內建表時，打過一次就記住並同步雲端）
+function getName(sym){const c=sym.includes(':')?sym.split(':')[1]:sym;return NAME_MAP[sym]||NAME_MAP[c]||customNames[sym]||customNames[c]||'';}
 function getCode(sym){return sym.includes(':')?sym.split(':')[1]:sym;}
 function getMarket(sym){return sym.startsWith('TWO:')?'OTC':'TSE';}
 // 本地日期字串 yyyy-MM-dd（避免 toISOString 用 UTC，台灣凌晨0–8點會記到前一天、污染歷史曲線）
@@ -1838,6 +1839,12 @@ function saveTrade(){
   const mkt=document.getElementById('tMarket')?.value||'auto';
   const sym = rawSym.includes(':') ? rawSym.toUpperCase()
             : (mkt==='auto' ? normSym(rawSym) : mkt+':'+rawSym.toUpperCase());   // 手選市場優先（新上櫃股不在寫死清單內）
+  // 名稱欄有打字且與內建不同 → 記進自訂名稱表（含雲端同步），以後這檔到處都顯示這個名字
+  const typedName=document.getElementById('tName').value.trim();
+  if(typedName && typedName!==(getName(sym)||'')){
+    customNames[sym]=typedName;
+    localStorage.setItem('pf_customnames',JSON.stringify(customNames));
+  }
   const action=document.getElementById('tAction').value;
   const qty=parseInt(document.getElementById('tQty').value)||0;
   const price=parseFloat(document.getElementById('tPrice').value)||0;
@@ -3281,6 +3288,7 @@ async function loadFromCloud(silent) {
       if (d.cashTxns)   { cashTxns      = d.cashTxns;    localStorage.setItem('pf_cashtxns',  JSON.stringify(cashTxns)); }
       if (d.transfers)  { transfers     = d.transfers;   localStorage.setItem('pf_transfers', JSON.stringify(transfers)); }
       if (d.nwHistory)  { nwHistory     = d.nwHistory;   localStorage.setItem('pf_nwhistory', JSON.stringify(nwHistory)); }
+      if (d.customNames){ customNames   = d.customNames; localStorage.setItem('pf_customnames', JSON.stringify(customNames)); }
       if (d.sheetsUrl && d.sheetsUrl !== SHEETS_URL) {
         SHEETS_URL = d.sheetsUrl;
         localStorage.setItem('gsheets_pub_url', SHEETS_URL);
@@ -3310,7 +3318,7 @@ async function saveToCloud() {
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
-      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers, sheetsUrl: SHEETS_URL, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers, customNames, sheetsUrl: SHEETS_URL, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
       method: 'POST',
