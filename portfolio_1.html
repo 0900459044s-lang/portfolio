@@ -1299,6 +1299,7 @@ function recordMvSnapshot(){
 }
 
 // ── 從雲端載入真實的每日市值歷史（GAS 盤後記錄 + 回補），取代本地估算值 ──
+let benchHistory = JSON.parse(localStorage.getItem('pf_benchmark')||'[]');   // 大盤基準 0050 每日收盤 [{date,c}]
 async function loadMvHistoryFromCloud(){
   try{
     const r = await fetch(WEB_APP_URL + '?action=history', { cache:'no-store', redirect:'follow' });
@@ -1310,9 +1311,19 @@ async function loadMvHistoryFromCloud(){
       mvHistory = [...res.history, ...localExtra].sort((a,b)=>a.date.localeCompare(b.date));
       if(mvHistory.length>800) mvHistory = mvHistory.slice(-800);
       localStorage.setItem('pf_mvhistory', JSON.stringify(mvHistory));
-      if(typeof renderPerfCard==='function') renderPerfCard();
     }
+    if(res.ok && res.benchmark && res.benchmark.length){
+      benchHistory = res.benchmark.sort((a,b)=>a.date.localeCompare(b.date));
+      localStorage.setItem('pf_benchmark', JSON.stringify(benchHistory));
+    }
+    if(res.ok && typeof renderPerfCard==='function') renderPerfCard();
   }catch(e){ console.warn('市值歷史載入失敗', e); }
+}
+// 取指定日期（含）之前最近的 0050 收盤
+function benchAt(dateKey){
+  let v=null;
+  for(const b of benchHistory){ if(b.date<=dateKey) v=b.c; else break; }
+  return v;
 }
 
 // ══════════════════════════════════════════
@@ -2310,7 +2321,20 @@ function renderPerfCard(){
       const denom = startMV + weightedFlow;
       const pctStr = denom > 0 ? `${gain>=0?'+':''}${(gain/denom*100).toFixed(2)}%` : '％無法計算（期間淨投入為負）';
       const flowNote = Math.abs(netFlow) > 0 ? `　<span style="color:var(--muted);font-size:11px">已排除期間淨投入 ${fmtTWD(netFlow)}</span>` : '';
-      rangeEl.innerHTML = `<span style="color:${gain>=0?'var(--green)':'var(--red)'};font-weight:600" title="金額加權報酬率（Modified Dietz）：排除期間入金/出金的影響，只計算真實投資損益">${gain>=0?'+':''}${fmtTWD(gain)} (${pctStr})</span> <span style="color:var(--muted)">${rangeLabel}</span>${flowNote}`;
+      // 大盤比較：0050 同期報酬 + 勝負標示
+      let benchNote='';
+      if(benchHistory.length>1 && filtered.length>1){
+        const b0=benchAt(filtered[0].date), b1=benchAt(filtered[filtered.length-1].date);
+        if(b0>0 && b1>0){
+          const bPct=(b1/b0-1)*100;
+          const rp = denom>0 ? gain/denom*100 : null;
+          const beat = rp!==null ? (rp>=bPct
+            ? `　<span style="color:var(--green);font-size:11px;font-weight:700" title="你的金額加權報酬率高於同期0050">👑 贏大盤 ${(rp-bPct).toFixed(2)}%</span>`
+            : `　<span style="color:var(--red);font-size:11px;font-weight:700" title="你的金額加權報酬率低於同期0050">輸大盤 ${(bPct-rp).toFixed(2)}%</span>`) : '';
+          benchNote=`　<span style="color:var(--muted);font-size:11px">0050 同期 <span style="color:${bPct>=0?'var(--green)':'var(--red)'}">${bPct>=0?'+':''}${bPct.toFixed(2)}%</span></span>${beat}`;
+        }
+      }
+      rangeEl.innerHTML = `<span style="color:${gain>=0?'var(--green)':'var(--red)'};font-weight:600" title="金額加權報酬率（Modified Dietz）：排除期間入金/出金的影響，只計算真實投資損益">${gain>=0?'+':''}${fmtTWD(gain)} (${pctStr})</span> <span style="color:var(--muted)">${rangeLabel}</span>${flowNote}${benchNote}`;
     } else {
       rangeEl.innerHTML = `<span style="color:var(--muted)">尚無足夠歷史資料計算${rangeLabel}報酬（資料會隨每次開啟累積）</span>`;
     }
@@ -2327,6 +2351,20 @@ function renderPerfCard(){
   const isUp = dataVals.length>=2 ? dataVals[dataVals.length-1]>=dataVals[0] : true;
   const lineColor = isUp ? '#22c55e' : '#ef4444';
 
+  // 0050 等值線：期初同額資金投入 0050 的走勢（虛線），一眼看出有沒有贏大盤
+  let benchDs=[];
+  if(benchHistory.length>1 && filtered.length>1){
+    const b0=benchAt(filtered[0].date);
+    if(b0>0){
+      const scale=(dataVals[0]||totalMV)/b0;
+      const bl=filtered.map(d=>{const b=benchAt(d.date);return b>0?Math.round(b*scale):null;});
+      if(bl.filter(v=>v!=null).length>=2) benchDs=[{
+        data: bl, borderColor:'#818cf8', borderDash:[5,4], borderWidth:1.5,
+        pointRadius:0, pointHoverRadius:3, fill:false, tension:0.3, spanGaps:true
+      }];
+    }
+  }
+
   charts.perf = new Chart(perfCtx, {
     type:'line',
     data:{
@@ -2341,13 +2379,13 @@ function renderPerfCard(){
         pointHoverRadius: 4,
         fill: true,
         tension: 0.3
-      }]
+      }, ...benchDs]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
-        tooltip:{ callbacks:{ label: ctx => ' '+fmtTWD(ctx.raw), title: ctx => ctx[0].label } }
+        tooltip:{ callbacks:{ label: ctx => (ctx.datasetIndex===1?' 0050等值 ':' ')+fmtTWD(ctx.raw), title: ctx => ctx[0].label } }
       },
       scales:{
         x:{ ticks:{color:'#71717a',font:{size:9},maxTicksLimit:6}, grid:{display:false} },

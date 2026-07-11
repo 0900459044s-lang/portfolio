@@ -18,6 +18,7 @@ function onOpen() {
     .addItem("檢查 user_data 內容", "debugUserData")
     .addItem("設定每日自動更新", "setupDailyTrigger")
     .addItem("回補歷史市值（一次性）", "backfillHistory")
+    .addItem("回補大盤 0050（一次性）", "backfillBenchmark")
     .addToUi();
 }
 
@@ -306,6 +307,7 @@ function updateClosePrices() {
     if (r2 && r2.price) totalMV += h.qty * r2.price;
   });
   if (totalMV > 0) recordHistory(maxDataDate || dateOnly, Math.round(totalMV));   // 記在實際交易日，假日執行不再多出假日點
+  updateBenchmark(di);   // 順便更新大盤 0050（+1 次 API）
 
   var elapsed = ((new Date().getTime() - startTime) / 1000).toFixed(1);
   Logger.log("✅ 盤後更新完成，耗時 " + elapsed + " 秒");
@@ -379,6 +381,84 @@ function recordHistory(dateStr, mv) {
     if (key === dateStr) { sheet.getRange(i + 1, 2).setValue(mv); return; }
   }
   sheet.appendRow([dateStr, mv]);
+}
+
+// ══════════════════════════════════════════════
+// 大盤基準 0050（benchmark 分頁）— 給網頁疊「贏/輸大盤」比較線
+// ══════════════════════════════════════════════
+var BENCH_SHEET = "benchmark";
+
+function getBenchSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(BENCH_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(BENCH_SHEET);
+    sheet.getRange("A1:B1").setValues([["日期","0050收盤"]]).setFontWeight("bold");
+  }
+  return sheet;
+}
+
+function fetchBenchMonthRows(y, m) {
+  var url = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=" + y + pad(m) + "01&stockNo=0050&response=json";
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  var data = JSON.parse(res.getContentText());
+  if (data.stat === "OK" && data.data) return data.data;
+  return [];
+}
+
+// API 民國日期列 → [['yyyy-MM-dd', close], ...]
+function benchRowsFromApi(apiRows) {
+  var out = [];
+  apiRows.forEach(function(row) {
+    var p = row[0].split("/");
+    var key = (parseInt(p[0], 10) + 1911) + "-" + p[1] + "-" + p[2];
+    var c = parseFloat(String(row[6]).replace(/,/g, ""));
+    if (c > 0) out.push([key, c]);
+  });
+  return out;
+}
+
+// 每日更新：抓當月 0050，同日覆蓋、新日追加（updateClosePrices 順便呼叫，僅 +1 次 API）
+function updateBenchmark(di) {
+  try {
+    var y = di.twDate.getFullYear(), m = di.twDate.getMonth() + 1;
+    var rowsIn = benchRowsFromApi(fetchBenchMonthRows(y, m));
+    if (!rowsIn.length) return;
+    var sheet = getBenchSheet();
+    var data = sheet.getDataRange().getValues();
+    var idx = {};
+    for (var i = 1; i < data.length; i++) {
+      var d = data[i][0];
+      var key = (d instanceof Date) ? Utilities.formatDate(d, "Asia/Taipei", "yyyy-MM-dd") : String(d);
+      idx[key] = i + 1;
+    }
+    rowsIn.forEach(function(r) {
+      if (idx[r[0]]) sheet.getRange(idx[r[0]], 2).setValue(r[1]);
+      else sheet.appendRow(r);
+    });
+  } catch(e) { Logger.log("benchmark update error: " + e.message); }
+}
+
+// 一次性回補：從第一筆交易日到今天的所有 0050 收盤
+function backfillBenchmark() {
+  var trades = getTradesFromUserData();
+  if (!trades.length) { safeAlert("⚠️ 沒有交易資料"); return; }
+  trades.sort(function(a, b) { return a[0].localeCompare(b[0]); });
+  var cur = new Date(trades[0][0].replace(/\//g, "-") + "T00:00:00");
+  cur.setDate(1);
+  var today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+  var all = [], n = 0;
+  while (cur <= today) {
+    all = all.concat(benchRowsFromApi(fetchBenchMonthRows(cur.getFullYear(), cur.getMonth() + 1)));
+    n++;
+    Utilities.sleep(120);
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  var sheet = getBenchSheet();
+  sheet.clearContents();
+  sheet.getRange("A1:B1").setValues([["日期","0050收盤"]]).setFontWeight("bold");
+  if (all.length) sheet.getRange(2, 1, all.length, 2).setValues(all);
+  safeAlert("✅ 大盤 0050 回補完成！\nAPI 呼叫 " + n + " 次，共 " + all.length + " 個交易日\n網頁按「🔄更新」後績效圖就會出現 0050 比較線");
 }
 
 // ── 方案B：一次性回補歷史市值 ──
@@ -521,19 +601,31 @@ function handleRequest(e) {
       return { ok: true, result: res || null };
     }
 
-    // 投資組合市值歷史（給網頁畫走勢圖用）
+    // 投資組合市值歷史 + 大盤 0050（給網頁畫走勢圖與贏/輸大盤比較）
     if (e.parameter && e.parameter.action === 'history') {
-      var hs = ss.getSheetByName(HISTORY_SHEET);
-      if (!hs) return { ok: true, history: [] };
-      var hd = hs.getDataRange().getValues();
       var out = [];
-      for (var hi = 1; hi < hd.length; hi++) {
-        var d = hd[hi][0];
-        var key = (d instanceof Date) ? Utilities.formatDate(d, "Asia/Taipei", "yyyy/MM/dd") : String(d);
-        var mv = Number(hd[hi][1]) || 0;
-        if (key && mv > 0) out.push({ date: key.replace(/\//g, '-'), mv: mv });
+      var hs = ss.getSheetByName(HISTORY_SHEET);
+      if (hs) {
+        var hd = hs.getDataRange().getValues();
+        for (var hi = 1; hi < hd.length; hi++) {
+          var d = hd[hi][0];
+          var key = (d instanceof Date) ? Utilities.formatDate(d, "Asia/Taipei", "yyyy/MM/dd") : String(d);
+          var mv = Number(hd[hi][1]) || 0;
+          if (key && mv > 0) out.push({ date: key.replace(/\//g, '-'), mv: mv });
+        }
       }
-      return { ok: true, history: out };
+      var bench = [];
+      var bs = ss.getSheetByName(BENCH_SHEET);
+      if (bs) {
+        var bd = bs.getDataRange().getValues();
+        for (var bi = 1; bi < bd.length; bi++) {
+          var d2 = bd[bi][0];
+          var k2 = (d2 instanceof Date) ? Utilities.formatDate(d2, "Asia/Taipei", "yyyy-MM-dd") : String(d2);
+          var c2 = Number(bd[bi][1]) || 0;
+          if (k2 && c2 > 0) bench.push({ date: k2.replace(/\//g, '-'), c: c2 });
+        }
+      }
+      return { ok: true, history: out, benchmark: bench };
     }
 
     if (e.postData && e.postData.contents) {
