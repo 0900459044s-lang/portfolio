@@ -235,6 +235,8 @@ td.r{text-align:right}
   .score-ring{margin:0 auto}
   .forecast-grid{grid-template-columns:1fr}
   .analysis-row{grid-template-columns:1fr!important}
+  /* 行為分析/Beta 卡的格子手機縮成 2 欄 */
+  #tradeBehavior>div>div[style*="repeat(4"],#betaCard>div>div[style*="repeat(3"]{grid-template-columns:1fr 1fr!important}
 }
 </style>
 </head>
@@ -637,6 +639,9 @@ td.r{text-align:right}
     </div>
 
     <!-- 年度統計（報稅參考）-->
+    <div id="tradeBehavior" style="margin-top:14px"></div>
+    <div id="monthHeatmap" style="margin-top:14px"></div>
+    <div id="betaCard" style="margin-top:14px"></div>
     <div id="yearlyStats" style="margin-top:14px"></div>
 
     <!-- 隱藏用的 pnlTbl（保持相容舊程式）-->
@@ -1344,11 +1349,13 @@ function computeAll(){
     if(!inv[sym])inv[sym]=[];
     if(action==='買進'){inv[sym].push({qty,price,totalFee:fee,mps:(Number(margin)||0)/qty,date});}
     else if(action==='賣出'){
-      let rem=qty,buyCost=0,buyFee=0;const newLots=[];
+      let rem=qty,buyCost=0,buyFee=0,daysSum=0;const newLots=[];
+      const sellD=new Date(date.replace(/\//g,'-'));
       for(const lot of inv[sym]){
         if(rem<=0){newLots.push(lot);continue;}
         const use=Math.min(rem,lot.qty);
         buyCost+=use*lot.price;buyFee+=(use/lot.qty)*lot.totalFee;
+        if(lot.date) daysSum+=use*Math.max(0,(sellD-new Date(lot.date.replace(/\//g,'-')))/86400000);   // 持有天數（股數加權）
         rem-=use;
         if(lot.qty-use>0)newLots.push({qty:lot.qty-use,price:lot.price,totalFee:lot.totalFee*(lot.qty-use)/lot.qty,mps:lot.mps||0,date:lot.date});
       }
@@ -1357,7 +1364,7 @@ function computeAll(){
       if(rem>0){ window.oversellSyms.push(sym); console.warn(`⚠️ 賣出量>持有：${sym} 賣${qty}股，僅${soldQty}股有對應買進，超賣${rem}股不計損益（可能漏記買進）`); }
       const gross=soldQty*price-buyCost;      // 毛損益＝實際賣出收入−買進本金（不含手續費）
       const net=gross-fee-tax;               // 淨損益（扣賣出手續費、交易稅）
-      realizedList.push({date,sym,qty:soldQty,sellPrice:price,buyAvg:soldQty>0?buyCost/soldQty:0,gross,allFees:fee+tax+buyFee,net,oversell:rem>0});
+      realizedList.push({date,sym,qty:soldQty,sellPrice:price,buyAvg:soldQty>0?buyCost/soldQty:0,gross,allFees:fee+tax+buyFee,net,oversell:rem>0,days:soldQty>0?Math.round(daysSum/soldQty):null});
     }
   }
   holdings={};marginBalance=0;
@@ -2967,10 +2974,145 @@ function renderTxAnalysis(){
       </td>
     </tr>`;
   }).join('');
+  renderTradeBehavior();
+  renderMonthHeatmap();
+  renderBetaCard();
   renderYearlyStats();
 }
 
 // ── 年度統計（報稅參考）：每年已實現損益/股息/手續費稅 ──
+// ── A：交易行為分析（勝率/盈虧比/期望值/連勝連敗/持有天數/最佳最差）──
+function renderTradeBehavior(){
+  const el=document.getElementById('tradeBehavior');
+  if(!el) return;
+  const rl=realizedList.filter(r=>!r.oversell);
+  if(rl.length<3){el.innerHTML='';return;}
+  const wins=rl.filter(r=>r.net>0), losses=rl.filter(r=>r.net<0);
+  const winRate=wins.length/rl.length*100;
+  const avgWin=wins.length?wins.reduce((s,r)=>s+r.net,0)/wins.length:0;
+  const avgLoss=losses.length?Math.abs(losses.reduce((s,r)=>s+r.net,0)/losses.length):0;
+  const plRatio=avgLoss>0?avgWin/avgLoss:0;                       // 盈虧比
+  const expect=rl.reduce((s,r)=>s+r.net,0)/rl.length;            // 每筆期望值
+  const totalWin=wins.reduce((s,r)=>s+r.net,0), totalLoss=Math.abs(losses.reduce((s,r)=>s+r.net,0));
+  const profitFactor=totalLoss>0?totalWin/totalLoss:0;          // 獲利因子
+  // 最大連勝/連敗（依平倉日期排序）
+  const seq=[...rl].sort((a,b)=>a.date.localeCompare(b.date));
+  let mw=0,ml=0,cw=0,cl=0;
+  seq.forEach(r=>{ if(r.net>0){cw++;cl=0;mw=Math.max(mw,cw);} else if(r.net<0){cl++;cw=0;ml=Math.max(ml,cl);} });
+  const withDays=rl.filter(r=>r.days!=null);
+  const avgDays=withDays.length?Math.round(withDays.reduce((s,r)=>s+r.days,0)/withDays.length):null;
+  const best=rl.reduce((a,b)=>b.net>a.net?b:a), worst=rl.reduce((a,b)=>b.net<a.net?b:a);
+  const nm=s=>getName(s)||getCode(s);
+  const cell=(lbl,val,color,tip)=>`<div style="background:var(--s2);border-radius:8px;padding:10px 12px" title="${tip||''}">
+    <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${lbl}</div>
+    <div class="mono" style="font-size:15px;font-weight:700;${color?'color:'+color:''}">${val}</div></div>`;
+  el.innerHTML=`<div class="tbl-wrap" style="padding:12px 14px">
+    <div style="font-size:12px;font-weight:700;margin-bottom:10px">🎯 交易行為分析 <span style="font-weight:400;font-size:10px;color:var(--muted)">${rl.length} 筆平倉（勝 ${wins.length}／負 ${losses.length}）</span></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+      ${cell('勝率',winRate.toFixed(0)+'%',winRate>=50?'var(--green)':'var(--yellow)','獲利的平倉筆數比例')}
+      ${cell('盈虧比',plRatio?plRatio.toFixed(2):'—',plRatio>=1.5?'var(--green)':plRatio>=1?'var(--yellow)':'var(--red)','平均每賺 ÷ 平均每賠，>1.5 佳')}
+      ${cell('獲利因子',profitFactor?profitFactor.toFixed(2):'—',profitFactor>=1.5?'var(--green)':'var(--yellow)','總獲利 ÷ 總虧損，>1 才長期賺')}
+      ${cell('每筆期望值',(expect>=0?'+':'')+fmtTWD(expect),expect>=0?'var(--green)':'var(--red)','平均每筆平倉的淨損益')}
+      ${cell('平均每賺','+'+fmtTWD(avgWin),'var(--green)','獲利交易的平均金額')}
+      ${cell('平均每賠','-'+fmtTWD(avgLoss),'var(--red)','虧損交易的平均金額')}
+      ${cell('最大連勝',mw+' 筆',mw>0?'var(--green)':'','連續獲利最多幾筆')}
+      ${cell('最大連敗',ml+' 筆',ml>0?'var(--red)':'','連續虧損最多幾筆')}
+      ${cell('平均持有',avgDays!=null?avgDays+' 天':'—','','平倉部位的股數加權平均持有天數')}
+      ${cell('最賺一筆',nm(best.sym)+' +'+fmtTWD(best.net),'var(--green)','')}
+      ${cell('最賠一筆',nm(worst.sym)+' '+fmtTWD(worst.net),'var(--red)','')}
+      ${cell('總平倉損益',(rl.reduce((s,r)=>s+r.net,0)>=0?'+':'')+fmtTWD(rl.reduce((s,r)=>s+r.net,0)),rl.reduce((s,r)=>s+r.net,0)>=0?'var(--green)':'var(--red)','')}
+    </div></div>`;
+}
+
+// ── B：月報酬率熱力表（各月市值加權報酬，綠賺紅虧）──
+function renderMonthHeatmap(){
+  const el=document.getElementById('monthHeatmap');
+  if(!el) return;
+  const hist=tradingDaysOnly([...mvHistory].filter(d=>d.mv>0&&!d.isEstimated).sort((a,b)=>a.date.localeCompare(b.date)),'mv');
+  if(hist.length<25){el.innerHTML='';return;}
+  // 各日資金流（買+/賣-）與股息，算月報酬時排除
+  const flowBy={},divBy={};
+  trades.forEach(t=>{const q=+t[3],p=+t[4];if(!(q>0&&p>0))return;const dk=t[0].replace(/\//g,'-');flowBy[dk]=(flowBy[dk]||0)+(t[2]==='買進'?q*p:-q*p);});
+  cashTxns.forEach(c=>{if(c.type==='dividend'&&(+c.amount||0)>0){const dk=(c.date||'').replace(/\//g,'-');divBy[dk]=(divBy[dk]||0)+ +c.amount;}});
+  // 逐月：用月初(前一月最後值)到月底，Modified Dietz
+  const mret={};   // "YYYY-MM": pct
+  for(let i=1;i<hist.length;i++){
+    const d=hist[i].date, ym=d.slice(0,7), prev=hist[i-1].mv;
+    if(prev<=0)continue;
+    let f=0,dv=0;
+    for(const dk in flowBy){ if(dk>hist[i-1].date&&dk<=d) f+=flowBy[dk]; }
+    for(const dk in divBy){ if(dk>hist[i-1].date&&dk<=d) dv+=divBy[dk]; }
+    const r=(hist[i].mv-prev-f+dv)/(prev+Math.max(0,f));
+    if(!isFinite(r)||Math.abs(r)>0.5)continue;
+    mret[ym]=(mret[ym]==null?1:(1+mret[ym]))*(1+r)-1;   // 月內日報酬複利
+  }
+  const years=[...new Set(Object.keys(mret).map(k=>k.slice(0,4)))].sort();
+  if(!years.length){el.innerHTML='';return;}
+  const col=p=>{ if(p==null)return 'var(--s2)'; const a=Math.min(1,Math.abs(p)/0.15); return p>=0?`rgba(34,197,94,${0.15+a*0.55})`:`rgba(239,68,68,${0.15+a*0.55})`; };
+  let rows='';
+  years.forEach(y=>{
+    let ytd=1;
+    let tds='';
+    for(let m=1;m<=12;m++){
+      const k=y+'-'+String(m).padStart(2,'0'); const p=mret[k];
+      if(p!=null)ytd*=(1+p);
+      tds+=`<td style="text-align:center;padding:5px 3px;background:${col(p)};font-family:'JetBrains Mono',monospace;font-size:10px;border-radius:3px" title="${k}">${p!=null?(p>=0?'+':'')+(p*100).toFixed(1):'·'}</td>`;
+    }
+    const hasAny=Object.keys(mret).some(k=>k.startsWith(y));
+    rows+=`<tr><td class="mono" style="font-weight:700;padding:5px 8px">${y}</td>${tds}<td class="mono r" style="font-weight:700;padding:5px 8px;color:${ytd>=1?'var(--green)':'var(--red)'}">${hasAny?((ytd-1>=0?'+':'')+((ytd-1)*100).toFixed(1)+'%'):'—'}</td></tr>`;
+  });
+  const mh=['1','2','3','4','5','6','7','8','9','10','11','12'].map(m=>`<th style="font-size:9px;color:var(--muted);font-weight:400;padding:3px">${m}月</th>`).join('');
+  el.innerHTML=`<div class="tbl-wrap" style="padding:12px 14px">
+    <div style="font-size:12px;font-weight:700;margin-bottom:10px">📅 月報酬率熱力表 <span style="font-weight:400;font-size:10px;color:var(--muted)">單位 %，綠賺紅虧，已排除入出金</span></div>
+    <div class="tbl-scroll"><table style="width:100%;min-width:520px;border-collapse:separate;border-spacing:2px">
+      <tr><th></th>${mh}<th style="font-size:9px;color:var(--muted);font-weight:400">全年</th></tr>${rows}
+    </table></div></div>`;
+}
+
+// ── C：Beta / Alpha / 與大盤相關性（相對 0050）──
+function renderBetaCard(){
+  const el=document.getElementById('betaCard');
+  if(!el) return;
+  if(benchHistory.length<25){el.innerHTML='';return;}
+  const hist=tradingDaysOnly([...mvHistory].filter(d=>d.mv>0&&!d.isEstimated).sort((a,b)=>a.date.localeCompare(b.date)),'mv');
+  if(hist.length<25){el.innerHTML='';return;}
+  const flowBy={},divBy={};
+  trades.forEach(t=>{const q=+t[3],p=+t[4];if(!(q>0&&p>0))return;const dk=t[0].replace(/\//g,'-');flowBy[dk]=(flowBy[dk]||0)+(t[2]==='買進'?q*p:-q*p);});
+  cashTxns.forEach(c=>{if(c.type==='dividend'&&(+c.amount||0)>0){const dk=(c.date||'').replace(/\//g,'-');divBy[dk]=(divBy[dk]||0)+ +c.amount;}});
+  // 配對「同一天」的組合日報酬 vs 0050 日報酬
+  const pr=[],br=[];
+  for(let i=1;i<hist.length;i++){
+    const d0=hist[i-1].date, d1=hist[i].date;
+    const b0=benchAt(d0), b1=benchAt(d1);
+    if(!(b0>0&&b1>0)||hist[i-1].mv<=0)continue;
+    let f=0,dv=0;
+    for(const dk in flowBy){ if(dk>d0&&dk<=d1) f+=flowBy[dk]; }
+    for(const dk in divBy){ if(dk>d0&&dk<=d1) dv+=divBy[dk]; }
+    const rp=(hist[i].mv-hist[i-1].mv-f+dv)/(hist[i-1].mv+Math.max(0,f));
+    const rb=b1/b0-1;
+    if(Math.abs(rp)>0.5)continue;
+    pr.push(rp);br.push(rb);
+  }
+  if(pr.length<20){el.innerHTML='';return;}
+  const n=pr.length, mp=pr.reduce((s,x)=>s+x,0)/n, mb=br.reduce((s,x)=>s+x,0)/n;
+  let cov=0,vb=0,vp=0;
+  for(let i=0;i<n;i++){cov+=(pr[i]-mp)*(br[i]-mb);vb+=(br[i]-mb)**2;vp+=(pr[i]-mp)**2;}
+  const beta=vb>0?cov/vb:0;
+  const corr=(vb>0&&vp>0)?cov/Math.sqrt(vb*vp):0;
+  const alphaD=mp-beta*mb;                    // 每日超額，年化
+  const alphaA=alphaD*252*100;
+  const cell=(lbl,val,color,tip)=>`<div style="background:var(--s2);border-radius:8px;padding:10px 12px" title="${tip}">
+    <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${lbl}</div>
+    <div class="mono" style="font-size:15px;font-weight:700;${color?'color:'+color:''}">${val}</div></div>`;
+  el.innerHTML=`<div class="tbl-wrap" style="padding:12px 14px">
+    <div style="font-size:12px;font-weight:700;margin-bottom:10px">📐 相對大盤（0050）量化指標 <span style="font-weight:400;font-size:10px;color:var(--muted)">近 ${n} 交易日</span></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+      ${cell('Beta β',beta.toFixed(2),beta>1.2?'var(--orange)':'var(--text)','對大盤的敏感度：>1 比大盤更劇烈，<1 較穩')}
+      ${cell('年化 Alpha',(alphaA>=0?'+':'')+alphaA.toFixed(1)+'%',alphaA>=0?'var(--green)':'var(--red)','扣掉承擔的大盤風險後，你多賺(少賺)的超額報酬')}
+      ${cell('相關性 R',corr.toFixed(2),'','與0050的連動程度：1完全同向、0無關')}
+    </div></div>`;
+}
+
 function renderYearlyStats(){
   const el=document.getElementById('yearlyStats');
   if(!el) return;
