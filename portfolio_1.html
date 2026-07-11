@@ -410,6 +410,9 @@ td.r{text-align:right}
     <div class="kpi"><div class="kpi-label">年化報酬率 XIRR</div><div class="kpi-value" id="sk-xirr">—</div><div class="kpi-sub neu" id="sk-xirr-sub">計算中</div></div>
   </div>
 
+  <!-- 風險指標（最大回撤/年化波動/Sharpe/日勝率）-->
+  <div id="riskCard" class="tbl-wrap" style="display:none;padding:10px 14px;margin-bottom:14px"></div>
+
   <!-- 股票圖表區 -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:14px" class="analysis-row">
     <div class="chart-card">
@@ -2396,6 +2399,58 @@ function renderPerfCard(){
       interaction:{intersect:false,mode:'index'}
     }
   });
+  renderRiskCard();
+}
+
+// ── 風險指標：最大回撤/年化波動/Sharpe/日勝率（用每日報酬率、已排除入出金影響）──
+function computeRiskMetrics(){
+  const hist=[...mvHistory].filter(d=>d.mv>0&&!d.isEstimated).sort((a,b)=>a.date.localeCompare(b.date));
+  const pts=tradingDaysOnly(hist,'mv');   // 去掉休市日重複值，波動才不會被稀釋
+  if(pts.length<20) return null;
+  // 各日期的資金流（買進＝流入組合、賣出＝流出）與股息
+  const flowBy={},divBy={};
+  trades.forEach(t=>{const q=+t[3],p=+t[4];if(!(q>0&&p>0))return;const dk=t[0].replace(/\//g,'-');flowBy[dk]=(flowBy[dk]||0)+(t[2]==='買進'?q*p:-q*p);});
+  cashTxns.forEach(c=>{if(c.type==='dividend'&&(+c.amount||0)>0){const dk=(c.date||'').replace(/\//g,'-');divBy[dk]=(divBy[dk]||0)+ +c.amount;}});
+  const rets=[];let idx=100,peak=100,mdd=0;
+  for(let i=1;i<pts.length;i++){
+    const prev=pts[i-1].mv;if(prev<=0)continue;
+    let f=0,dv=0;
+    for(const dk in flowBy){ if(dk>pts[i-1].date&&dk<=pts[i].date) f+=flowBy[dk]; }
+    for(const dk in divBy){ if(dk>pts[i-1].date&&dk<=pts[i].date) dv+=divBy[dk]; }
+    const r=(pts[i].mv-prev-f+dv)/(prev+Math.max(0,f));   // 簡化 Dietz 日報酬
+    if(!isFinite(r)||Math.abs(r)>0.5) continue;   // 防呆：單日>50% 必為資料異常
+    rets.push(r);
+    idx*=(1+r);
+    if(idx>peak)peak=idx;
+    const dd=(idx-peak)/peak; if(dd<mdd)mdd=dd;
+  }
+  if(rets.length<15) return null;
+  const mean=rets.reduce((s,x)=>s+x,0)/rets.length;
+  const varr=rets.reduce((s,x)=>s+(x-mean)*(x-mean),0)/(rets.length-1);
+  const volA=Math.sqrt(varr)*Math.sqrt(252);
+  const years=rets.length/252;
+  const cagr=Math.pow(idx/100,1/years)-1;   // 幾何年化報酬（時間加權）
+  const rf=0.015;   // 無風險利率假設 1.5%（約當定存）
+  const sharpe=volA>0?(cagr-rf)/volA:0;
+  const winRate=rets.filter(r=>r>0).length/rets.length*100;
+  return {mdd:mdd*100,volA:volA*100,sharpe,cagr:cagr*100,winRate,days:rets.length};
+}
+function renderRiskCard(){
+  const el=document.getElementById('riskCard');
+  if(!el) return;
+  const m=computeRiskMetrics();
+  if(!m){el.style.display='none';return;}
+  el.style.display='';
+  const shColor=m.sharpe>=1?'var(--green)':(m.sharpe>=0?'var(--yellow)':'var(--red)');
+  el.innerHTML=`<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;align-items:center">
+    <span style="font-weight:700;font-size:12px">🛡️ 風險指標</span>
+    <span style="color:var(--muted)" title="歷史上從高點跌到低點的最大幅度">最大回撤 <strong class="mono" style="color:var(--red)">${m.mdd.toFixed(1)}%</strong></span>
+    <span style="color:var(--muted)" title="日報酬標準差年化，越高越刺激">年化波動 <strong class="mono" style="color:var(--text)">${m.volA.toFixed(1)}%</strong></span>
+    <span style="color:var(--muted)" title="每承擔1單位風險換到的超額報酬，>1 算優秀">Sharpe <strong class="mono" style="color:${shColor}">${m.sharpe.toFixed(2)}</strong></span>
+    <span style="color:var(--muted)" title="上漲天數比例">日勝率 <strong class="mono" style="color:var(--text)">${m.winRate.toFixed(0)}%</strong></span>
+    <span style="color:var(--muted)" title="時間加權幾何年化報酬">年化 <strong class="mono" style="color:${m.cagr>=0?'var(--green)':'var(--red)'}">${(m.cagr>=0?'+':'')+m.cagr.toFixed(1)}%</strong></span>
+    <span style="color:var(--muted2);font-size:9px;margin-left:auto">近 ${m.days} 交易日・無風險利率假設 1.5%</span>
+  </div>`;
 }
 
 let sortCol='mv', sortDir=-1; // 預設市值由大到小
@@ -2607,7 +2662,12 @@ function renderHoldingDetail(sym){
         <button onclick="deleteCashTxn(${i})" style="background:none;border:none;color:var(--muted);cursor:pointer">✕</button>
       </div>`).join(''):'<div style="color:var(--muted);padding:8px;text-align:center;font-size:11px">尚無股息紀錄——收到股息時點「＋新增股息」記一筆，會自動計入證券戶現金水位</div>');
   }
-  el.innerHTML=`<div style="display:flex;gap:6px;margin-bottom:10px">${tabBar}</div>${body}`;
+  // 個股快速連結（新聞/K線 直接看大平台，不用自建）
+  const yUrl=`https://tw.stock.yahoo.com/quote/${code}${getMarket(sym)==='OTC'?'.TWO':'.TW'}`;
+  const cUrl=`https://www.cnyes.com/twstock/${code}`;
+  const links=`<span style="margin-left:auto;font-size:11px;white-space:nowrap;align-self:center" onclick="event.stopPropagation()">
+    <a href="${yUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">Yahoo↗</a>　<a href="${cUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">鉅亨↗</a></span>`;
+  el.innerHTML=`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">${tabBar}${links}</div>${body}`;
 }
 
 // ── 圖表開關狀態 ──
