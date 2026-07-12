@@ -1297,9 +1297,10 @@ function recordMvSnapshot(){
     }
   });
 
-  // 記錄今日實際市值（僅在股價已載入時；否則會用成本價記出假的低點污染折線圖）
+  // 記錄今日實際市值（僅在股價已載入、且今天是平日時；週末休市不記，避免日曆/曲線多出假日點）
   const pricesLoaded = Object.values(holdings).some(h=>h.currentPrice>0);
-  if(pricesLoaded){
+  const isWeekend = [0,6].includes(new Date().getDay());
+  if(pricesLoaded && !isWeekend){
     const existing = mvHistory.find(d=>d.date===todayKey);
     if(existing){
       existing.mv = totalMV;
@@ -1322,8 +1323,10 @@ async function loadMvHistoryFromCloud(){
     const res = await r.json();
     if(res.ok && res.history && res.history.length){
       const serverDates = new Set(res.history.map(d=>d.date));
-      // 伺服器（真實收盤價）為準；本地只保留伺服器沒有的日期的「非估算」點（例如今天盤中快照）
-      const localExtra = mvHistory.filter(d=>!serverDates.has(d.date) && !d.isEstimated);
+      // 伺服器（GAS 真實交易日收盤）為準；本地只保留「今天」的盤中即時點，
+      // 過去伺服器沒有的日期一律丟棄（那些是休市日或抓到壞價的快照，例如颱風日）
+      const todayK = localDateKey();
+      const localExtra = mvHistory.filter(d=>!serverDates.has(d.date) && !d.isEstimated && d.date>=todayK);
       mvHistory = [...res.history, ...localExtra].sort((a,b)=>a.date.localeCompare(b.date));
       if(mvHistory.length>800) mvHistory = mvHistory.slice(-800);
       localStorage.setItem('pf_mvhistory', JSON.stringify(mvHistory));
