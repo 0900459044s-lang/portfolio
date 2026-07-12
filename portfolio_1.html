@@ -2415,29 +2415,34 @@ function renderPerfCard(){
   renderRiskCard();
 }
 
-// ── 風險指標：最大回撤/年化波動/Sharpe/日勝率（用每日報酬率、已排除入出金影響）──
-function computeRiskMetrics(){
-  const hist=[...mvHistory].filter(d=>d.mv>0&&!d.isEstimated).sort((a,b)=>a.date.localeCompare(b.date));
-  const pts=tradingDaysOnly(hist,'mv');   // 去掉休市日重複值，波動才不會被稀釋
-  if(pts.length<20) return null;
-  // 各日期的資金流（買進＝流入組合、賣出＝流出）與股息
+// ── 每日流量調整報酬序列（排除入出金、含股息）→ 風險指標/回撤圖/日曆共用，確保數字一致 ──
+// 回傳 [{date, r(日報酬), idx(報酬指數起始100), dd(距高點回撤%)}]
+function dailyReturnSeries(){
+  const pts=tradingDaysOnly([...mvHistory].filter(d=>d.mv>0&&!d.isEstimated).sort((a,b)=>a.date.localeCompare(b.date)),'mv');
+  if(pts.length<2) return [];
   const flowBy={},divBy={};
   trades.forEach(t=>{const q=+t[3],p=+t[4];if(!(q>0&&p>0))return;const dk=t[0].replace(/\//g,'-');flowBy[dk]=(flowBy[dk]||0)+(t[2]==='買進'?q*p:-q*p);});
   cashTxns.forEach(c=>{if(c.type==='dividend'&&(+c.amount||0)>0){const dk=(c.date||'').replace(/\//g,'-');divBy[dk]=(divBy[dk]||0)+ +c.amount;}});
-  const rets=[];let idx=100,peak=100,mdd=0;
+  const out=[];let idx=100,peak=100;
   for(let i=1;i<pts.length;i++){
     const prev=pts[i-1].mv;if(prev<=0)continue;
     let f=0,dv=0;
     for(const dk in flowBy){ if(dk>pts[i-1].date&&dk<=pts[i].date) f+=flowBy[dk]; }
     for(const dk in divBy){ if(dk>pts[i-1].date&&dk<=pts[i].date) dv+=divBy[dk]; }
-    const r=(pts[i].mv-prev-f+dv)/(prev+Math.max(0,f));   // 簡化 Dietz 日報酬
+    const r=(pts[i].mv-prev-f+dv)/(prev+Math.max(0,f));   // 簡化 Dietz 日報酬（賣股換現金不算跌）
     if(!isFinite(r)||Math.abs(r)>0.5) continue;   // 防呆：單日>50% 必為資料異常
-    rets.push(r);
-    idx*=(1+r);
-    if(idx>peak)peak=idx;
-    const dd=(idx-peak)/peak; if(dd<mdd)mdd=dd;
+    idx*=(1+r); if(idx>peak)peak=idx;
+    out.push({date:pts[i].date, r, idx, dd:(idx-peak)/peak*100});
   }
-  if(rets.length<15) return null;
+  return out;
+}
+// ── 風險指標：最大回撤/年化波動/Sharpe/日勝率（用上面的流量調整序列）──
+function computeRiskMetrics(){
+  const ser=dailyReturnSeries();
+  if(ser.length<15) return null;
+  const rets=ser.map(s=>s.r);
+  const mdd=Math.min(0,...ser.map(s=>s.dd));
+  const idx=ser[ser.length-1].idx;
   const mean=rets.reduce((s,x)=>s+x,0)/rets.length;
   const varr=rets.reduce((s,x)=>s+(x-mean)*(x-mean),0)/(rets.length-1);
   const volA=Math.sqrt(varr)*Math.sqrt(252);
@@ -2446,7 +2451,7 @@ function computeRiskMetrics(){
   const rf=0.015;   // 無風險利率假設 1.5%（約當定存）
   const sharpe=volA>0?(cagr-rf)/volA:0;
   const winRate=rets.filter(r=>r>0).length/rets.length*100;
-  return {mdd:mdd*100,volA:volA*100,sharpe,cagr:cagr*100,winRate,days:rets.length};
+  return {mdd,volA:volA*100,sharpe,cagr:cagr*100,winRate,days:rets.length};
 }
 function renderRiskCard(){
   const el=document.getElementById('riskCard');
@@ -2993,13 +2998,11 @@ function renderTxAnalysis(){
 function renderDrawdownChart(){
   const card=document.getElementById('drawdownCard');
   if(!card) return;
-  const hist=tradingDaysOnly([...mvHistory].filter(d=>d.mv>0&&!d.isEstimated).sort((a,b)=>a.date.localeCompare(b.date)),'mv');
-  if(hist.length<20){card.style.display='none';return;}
+  const ser=dailyReturnSeries();   // 排除入出金的報酬指數回撤（賣股換現金不算跌）
+  if(ser.length<20){card.style.display='none';return;}
   card.style.display='';
-  let peak=hist[0].mv;
-  const dd=hist.map(d=>{ if(d.mv>peak)peak=d.mv; return {date:d.date, v:(d.mv-peak)/peak*100}; });
-  const labels=dd.map(d=>{const p=d.date.split('-');return `${+p[1]}/${+p[2]}`;});
-  const vals=dd.map(d=>d.v);
+  const labels=ser.map(d=>{const p=d.date.split('-');return `${+p[1]}/${+p[2]}`;});
+  const vals=ser.map(d=>d.dd);
   if(charts.dd) charts.dd.destroy();
   const ctx=document.getElementById('ddChart');
   if(!ctx) return;
