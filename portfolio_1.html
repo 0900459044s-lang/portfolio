@@ -2374,13 +2374,37 @@ function renderPerfCard(){
   const isUp = dataVals.length>=2 ? dataVals[dataVals.length-1]>=dataVals[0] : true;
   const lineColor = isUp ? '#22c55e' : '#ef4444';
 
-  // 0050 等值線：期初同額資金投入 0050 的走勢（虛線），一眼看出有沒有贏大盤
+  // 0050 對照線（公平版）：起點市值先換算成 0050，之後每一筆入金/出金都在「同一天」改買/賣 0050
+  // → 與你的淨值線「同基準、同金流」，兩線差距才是真正的「你 vs 0050」，不會被後續入金撐大而失真
   let benchDs=[];
   if(benchHistory.length>1 && filtered.length>1){
     const b0=benchAt(filtered[0].date);
     if(b0>0){
-      const scale=(dataVals[0]||totalMV)/b0;
-      const bl=filtered.map(d=>{const b=benchAt(d.date);return b>0?Math.round(b*scale):null;});
+      const startKey0050=filtered[0].date;
+      // 區間內每一天的股票現金流（買進=投入現金 +、賣出=回收現金 −），與上方 Modified Dietz 同口徑
+      const flowByDate={};
+      trades.forEach(t=>{
+        const dk=t[0].replace(/\//g,'-');
+        if(dk>startKey0050 && dk<=todayKey){
+          const q=+t[3],p=+t[4],f=+t[5]||0,tx=+t[6]||0;
+          let flow=0;
+          if(t[2]==='買進') flow=q*p+f;
+          else if(t[2]==='賣出') flow=-(q*p-f-tx);
+          if(flow!==0) flowByDate[dk]=(flowByDate[dk]||0)+flow;
+        }
+      });
+      const flowDates=Object.keys(flowByDate).sort();
+      let units=(dataVals[0]||totalMV)/b0;   // 起點：把你的起始市值換算成等值的 0050 單位數
+      let fi=0;
+      const bl=filtered.map(d=>{
+        while(fi<flowDates.length && flowDates[fi]<=d.date){   // 套用到這一天(含)為止的每一筆入金/出金，用當天 0050 價換成單位增減
+          const bp=benchAt(flowDates[fi]);
+          if(bp>0) units+=flowByDate[flowDates[fi]]/bp;
+          fi++;
+        }
+        const b=benchAt(d.date);
+        return b>0?Math.round(units*b):null;
+      });
       if(bl.filter(v=>v!=null).length>=2) benchDs=[{
         data: bl, borderColor:'#818cf8', borderDash:[5,4], borderWidth:1.5,
         pointRadius:0, pointHoverRadius:3, fill:false, tension:0.3, spanGaps:true
@@ -2408,7 +2432,7 @@ function renderPerfCard(){
       responsive:true, maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
-        tooltip:{ callbacks:{ label: ctx => (ctx.datasetIndex===1?' 0050等值 ':' ')+fmtTWD(ctx.raw), title: ctx => ctx[0].label } }
+        tooltip:{ callbacks:{ label: ctx => (ctx.datasetIndex===1?' 改買0050 ':' ')+fmtTWD(ctx.raw), title: ctx => ctx[0].label } }
       },
       scales:{
         x:{ ticks:{color:'#71717a',font:{size:9},maxTicksLimit:6}, grid:{display:false} },
