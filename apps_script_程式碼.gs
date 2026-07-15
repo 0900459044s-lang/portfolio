@@ -570,6 +570,62 @@ function backfillHistory() {
 // ── Web App 同步（保留，讓網頁可以讀寫資料）──
 const DATA_SHEET = "user_data";
 
+// ══════════════════════════════════════════
+// 盤中即時報價（TWSE MIS API）
+// 一次批次抓全部持股，盤中給即時價、盤後給收盤價，只讀不寫 → 快
+// ══════════════════════════════════════════
+function getLiveQuotes() {
+  var holdings = getHoldingsFromUserData();
+  if (!holdings.length) return { prices: {}, source: "mis", count: 0 };
+
+  // 建 ex_ch 清單 + 反查表：MIS 回來的 "tse_2330" → 原始 key "TPE:2330"
+  var chMap = {};
+  var chans = holdings.map(function(h) {
+    var ex = (h.market === "otc") ? "otc" : "tse";
+    chMap[ex + "_" + h.sym] = h.key;
+    return ex + "_" + h.sym + ".tw";
+  });
+
+  // 每 50 檔一個請求，用 fetchAll 平行抓（持股再多也只花一輪網路時間）
+  var CHUNK = 50, requests = [];
+  for (var i = 0; i < chans.length; i += CHUNK) {
+    var exch = chans.slice(i, i + CHUNK).join("|");
+    requests.push({
+      url: "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch=" + encodeURIComponent(exch),
+      muteHttpExceptions: true,
+      headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
+    });
+  }
+
+  var prices = {};
+  try {
+    var responses = UrlFetchApp.fetchAll(requests);
+    responses.forEach(function(res) {
+      var body;
+      try { body = JSON.parse(res.getContentText()); } catch(e) { return; }
+      var arr = (body && body.msgArray) || [];
+      arr.forEach(function(m) {
+        var key = chMap[m.ex + "_" + m.c];
+        if (!key) return;
+        var z = parseFloat(m.z), o = parseFloat(m.o), y = parseFloat(m.y);
+        // 最新成交價優先；尚未成交則用開盤價，再不然用昨收
+        var price = (z > 0) ? z : (o > 0 ? o : (y > 0 ? y : null));
+        if (price === null) return;
+        prices[key] = {
+          price: price,
+          prev: (y > 0 ? y : null),
+          name: m.n || "",
+          time: m.t || "",
+          intraday: (z > 0)   // 有成交價=盤中即時；只有昨收=盤前尚未成交
+        };
+      });
+    });
+  } catch(e) {
+    Logger.log("MIS live error: " + e.message);
+  }
+  return { prices: prices, source: "mis", count: Object.keys(prices).length };
+}
+
 function doGet(e) {
   return ContentService
     .createTextOutput(JSON.stringify(handleRequest(e)))
@@ -599,6 +655,11 @@ function handleRequest(e) {
     if (e.parameter && e.parameter.action === 'refreshprices') {
       var res = updateClosePrices();
       return { ok: true, result: res || null };
+    }
+
+    // 網頁一鍵：盤中即時報價（MIS，快、可盤中；只讀不寫）
+    if (e.parameter && e.parameter.action === 'live') {
+      return { ok: true, result: getLiveQuotes() };
     }
 
     // 投資組合市值歷史 + 大盤 0050（給網頁畫走勢圖與贏/輸大盤比較）

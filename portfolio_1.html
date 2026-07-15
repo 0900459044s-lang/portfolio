@@ -253,7 +253,7 @@ td.r{text-align:right}
   <div class="hdr-r">
     <span id="syncStatus" title="資料會自動存到雲端，這裡顯示同步狀態" style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--s2);border:1px solid var(--border);color:var(--muted)">☁️ 連線中...</span>
     <span id="priceStatus" title="股價來源設定（Google Sheets 報價表）" style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--s2);border:1px solid var(--border);cursor:pointer" onclick="openSheetsSetup()">📈 報價設定</span>
-    <button class="btn btn-primary btn-sm" onclick="refreshEverything()" title="重載雲端資料＋更新股價；有新股票沒價格時自動去抓">🔄 更新</button>
+    <button id="refreshBtn" class="btn btn-primary btn-sm" onclick="refreshEverything()" title="重載雲端資料＋抓盤中即時報價（TWSE MIS）；盤中每 2 分鐘自動更新">🔄 更新</button>
     <button class="btn btn-secondary btn-sm" onclick="exportBackup()" title="下載全部資料的 JSON 備份檔">💾</button>
     <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFile').click()" title="從 JSON 備份檔還原資料">📥</button>
     <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
@@ -1441,25 +1441,76 @@ async function refreshPrices(){
   renderAll();
 }
 
-// 一鍵更新：雲端資料 + 股價（若偵測到有股票沒價格，自動叫 GAS 去抓，不用另一顆按鈕）
+// 用 localStorage 快取的上次價格先把持股填上，避免 computeAll 清空後畫面短暫空白
+function seedPricesFromCache(){
+  for(const sym in holdings){
+    if(!(holdings[sym].currentPrice>0) && lastPrices[sym] && lastPrices[sym].p>0){
+      holdings[sym].currentPrice=lastPrices[sym].p;
+    }
+  }
+}
+
+// 叫 GAS 抓盤中即時報價（MIS）並直接套用；回傳 {cnt, intraday, ok}
+async function pullLiveQuotes(){
+  try{
+    const r=await fetch(WEB_APP_URL+'?action=live',{cache:'no-store',redirect:'follow'});
+    const j=await r.json();
+    let cnt=0, anyIntraday=false;
+    if(j&&j.ok&&j.result&&j.result.prices){
+      for(const sym in j.result.prices){
+        const p=j.result.prices[sym];
+        if(holdings[sym]&&p&&p.price>0&&priceGuard(sym,p.price)){
+          holdings[sym].currentPrice=p.price;
+          if(p.prev>0)holdings[sym].prevClose=p.prev;
+          if(p.intraday)anyIntraday=true;
+          cnt++;
+        }
+      }
+      if(cnt>0) renderAll();
+    }
+    return {cnt, intraday:anyIntraday, ok:!!(j&&j.ok)};
+  }catch(e){ return {cnt:0, intraday:false, ok:false}; }
+}
+
+// 一鍵更新：雲端資料 + 盤中即時報價（MIS 一次批次抓；MIS 抓不到才退回收盤價 API）
+let _refreshing=false;
 async function refreshEverything(){
-  if(typeof loadFromCloud==='function') await loadFromCloud(true);
-  await refreshPrices();
-  const missing = Object.values(holdings).filter(h => !(h.currentPrice>0));
-  if(missing.length){
-    const r = await pullPricesFromGAS(false);   // 雲端已是最新持股，免再同步
-    // 狀態列一律顯示「真正有價格的檔數」，不被 GAS 抓取結果蓋成 0
-    const st=document.getElementById('priceStatus');
-    const total = Object.values(holdings).length;
-    const withPrice = Object.values(holdings).filter(h=>h.currentPrice>0).length;
-    const stillMissing = total - withPrice;
-    if(st){ const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
-      st.textContent=`📈 股價已更新 ${t}（${withPrice} 檔）`; st.style.color='var(--green)'; }
-    if(r.cnt>0) showToast(`✅ 已更新，補抓 ${r.cnt} 檔新股價`);
-    else if(stillMissing>0) showToast(`✅ 資料已更新（尚有 ${stillMissing} 檔新股無報價：Google Sheets 跑「📊股票工具→更新今日收盤價」即可；重新部署 GAS 後這裡會自動抓）`);
+  if(_refreshing) return;              // 防連點
+  _refreshing=true;
+  const btn=document.getElementById('refreshBtn');
+  const st=document.getElementById('priceStatus');
+  const up=document.getElementById('lastUpdate');
+  const btnTxt=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.style.opacity='.6';btn.textContent='⏳ 更新中';}
+  if(st){st.textContent='⏳ 抓取即時報價...';st.style.color='var(--yellow)';}
+  try{
+    if(typeof loadFromCloud==='function') await loadFromCloud(true);  // 先同步（computeAll 會把 currentPrice 清空）
+    seedPricesFromCache();                                            // 用快取價先墊著，畫面不閃空白
+    let live=await pullLiveQuotes();                                  // 再套上即時報價
+    let intraday=live.intraday;
+    // MIS 一檔都沒回（可能被擋/連線問題）→ 退回原本的收盤價 API
+    if(live.cnt===0 && Object.values(holdings).length){
+      const r=await pullPricesFromGAS(false);
+      intraday=false;
+    }
+    const total=Object.values(holdings).length;
+    const withPrice=Object.values(holdings).filter(h=>h.currentPrice>0).length;
+    const stillMissing=total-withPrice;
+    const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+    if(st){
+      const tag=intraday?'即時':'收盤';
+      st.textContent=`📈 ${tag} ${t}（${withPrice}/${total} 檔）`;
+      st.style.color='var(--green)';
+    }
+    if(up){ up.textContent=(intraday?'即時報價 ':'收盤價 ')+t+' 更新，盤中每 2 分鐘自動更新'; }
+    if(intraday) showToast(`✅ 已更新即時報價（${withPrice} 檔）`);
+    else if(stillMissing>0) showToast(`✅ 資料已更新（尚有 ${stillMissing} 檔無報價；盤中再按或 Google Sheets 跑「更新今日收盤價」）`);
     else showToast('✅ 已更新資料與股價');
-  } else {
-    showToast('✅ 已更新資料與股價');
+  }catch(e){
+    if(st){st.textContent='❌ 報價更新失敗，點此檢查';st.style.color='var(--red)';}
+  }finally{
+    if(btn){btn.disabled=false;btn.style.opacity='';btn.textContent=btnTxt||'🔄 更新';}
+    _refreshing=false;
   }
 }
 
@@ -1483,8 +1534,28 @@ async function pullPricesFromGAS(needSync){
   }
 }
 
-// 股價每 5 分鐘自動更新
-setInterval(()=>{ if(SHEETS_URL) refreshPrices(); }, 5*60*1000);
+// 台股盤中時段（週一~五 09:00~13:35，台北時間）
+function isTWMarketHours(){
+  const tw=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));
+  const d=tw.getDay(); if(d===0||d===6) return false;
+  const hm=tw.getHours()*60+tw.getMinutes();
+  return hm>=9*60 && hm<=13*60+35;
+}
+// 盤中每 2 分鐘自動抓即時報價；非盤中維持每 5 分鐘讀已發佈收盤 CSV
+setInterval(()=>{
+  if(isTWMarketHours()){
+    if(_refreshing) return;
+    pullLiveQuotes().then(r=>{
+      if(r.cnt>0){
+        const st=document.getElementById('priceStatus');
+        const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+        const total=Object.values(holdings).length;
+        const withPrice=Object.values(holdings).filter(h=>h.currentPrice>0).length;
+        if(st){ st.textContent=`📈 即時 ${t}（${withPrice}/${total} 檔）`; st.style.color='var(--green)'; }
+      }
+    });
+  } else if(SHEETS_URL){ refreshPrices(); }
+}, 2*60*1000);
 
 // ══════════════════════════════════════════
 // Render All
