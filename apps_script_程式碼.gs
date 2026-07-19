@@ -22,6 +22,8 @@ function onOpen() {
     .addSeparator()
     .addItem("立即備份 user_data", "snapshotUserData")
     .addItem("還原備份…", "restoreUserDataFromBackup")
+    .addSeparator()
+    .addItem("設定存取密碼", "setupApiKey")
     .addToUi();
 }
 
@@ -719,15 +721,38 @@ function doPost(e) {
 
 // ════════════════════════════════════════════════════════════════════════
 //  存取金鑰：擋掉未授權的讀寫
-//  ⚠️ 把下面 '請改成你的密碼' 換成你自己的密碼（跟你在 App 輸入的那組一模一樣）。
-//     這行只存在 GAS，不會出現在公開網頁原始碼裡。忘記時可回來這裡看/改。
-//     改完記得「部署 → 管理部署作業 → 編輯 → 新版本 → 部署」才會生效。
+//  密碼存在「指令碼屬性」(專案設定 → Script Properties)，不寫在程式碼裡，
+//  所以以後改這份程式碼、重貼時密碼都不會被洗掉，也不會出現在公開 repo。
+//  第一次設定：選單「📊 股票工具 → 設定存取密碼」輸入一次即可。
+//  忘記時：專案設定 → 指令碼屬性 看 API_KEY，或用選單重設。
 // ════════════════════════════════════════════════════════════════════════
-var API_KEY = '請改成你的密碼';
+function getApiKey() {
+  return PropertiesService.getScriptProperties().getProperty('API_KEY') || '';
+}
+
+function setupApiKey() {
+  var ui = SpreadsheetApp.getUi();
+  var cur = getApiKey();
+  var resp = ui.prompt(
+    "設定存取密碼",
+    "輸入存取密碼（App 端要輸入一模一樣的這組）。\n" +
+    (cur ? "目前已設定過（留空按確定＝維持不變）。" : "目前尚未設定。"),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var v = resp.getResponseText().trim();
+  if (!v) { ui.alert(cur ? "未變更。" : "密碼不可空白，請重新執行設定。"); return; }
+  PropertiesService.getScriptProperties().setProperty('API_KEY', v);
+  ui.alert("✅ 已設定存取密碼。請到 App 輸入同一組密碼。");
+}
 
 function handleRequest(e) {
   try {
     // ── 驗證金鑰（GET 從 ?key= 取、POST 從 body.key 取）──
+    var API_KEY = getApiKey();
+    if (!API_KEY) {
+      return { ok: false, unauthorized: true, message: '伺服器尚未設定存取密碼，請先在 GAS 選單「設定存取密碼」' };
+    }
     var providedKey = (e && e.parameter && e.parameter.key) || '';
     if (!providedKey && e && e.postData && e.postData.contents) {
       try { providedKey = JSON.parse(e.postData.contents).key || ''; } catch (ignore) {}
