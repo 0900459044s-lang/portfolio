@@ -717,8 +717,25 @@ function doPost(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ════════════════════════════════════════════════════════════════════════
+//  存取金鑰：擋掉未授權的讀寫
+//  ⚠️ 把下面 '請改成你的密碼' 換成你自己的密碼（跟你在 App 輸入的那組一模一樣）。
+//     這行只存在 GAS，不會出現在公開網頁原始碼裡。忘記時可回來這裡看/改。
+//     改完記得「部署 → 管理部署作業 → 編輯 → 新版本 → 部署」才會生效。
+// ════════════════════════════════════════════════════════════════════════
+var API_KEY = '請改成你的密碼';
+
 function handleRequest(e) {
   try {
+    // ── 驗證金鑰（GET 從 ?key= 取、POST 從 body.key 取）──
+    var providedKey = (e && e.parameter && e.parameter.key) || '';
+    if (!providedKey && e && e.postData && e.postData.contents) {
+      try { providedKey = JSON.parse(e.postData.contents).key || ''; } catch (ignore) {}
+    }
+    if (providedKey !== API_KEY) {
+      return { ok: false, unauthorized: true, message: '未授權：金鑰錯誤或未提供' };
+    }
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(DATA_SHEET);
     if (!sheet) sheet = ss.insertSheet(DATA_SHEET);
