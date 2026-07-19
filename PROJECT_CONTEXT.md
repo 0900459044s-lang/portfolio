@@ -24,8 +24,17 @@
 **即時性**：盤中即時報價(TWSE MIS API，GAS 代抓，`?action=live`)，盤後自動走收盤價路徑。
 **可靠性**：雲端同步衝突偵測(存檔前用 `updatedAt` 比對雲端版本，被其他裝置改過會跳確認)、核心計算回歸測試(`tests/core_calc_test.js`，用 JavaScriptCore 跑)。
 
+## 3.5 2026-07-20 新增（本輪）
+- **產業分類 sector**：{代號:產業} 存 localStorage(pf_sectors)+雲端；種子分類 SECTOR_MAP；持倉明細內🏷️下拉可改。分散度面板新增「產業集中度」HHI（抓「個股看似分散、實則單一產業重壓」）。
+- **持股地圖 Treemap**（股票頁）：slice-and-dice，列高=產業市值、格寬=個股市值、色=損益，renderSectorTreemap()。
+- **除息行事曆 divEvents**：即將除息預估入帳 + 除息後填息率(填息%=(現價−除息參考)/現金股利)。renderDivCalendar()/openDivEventModal()。
+- **配股（股票股利）**：交易類別新增「配股」，computeAll 存零成本股(price=0)攤薄均價、賣出時 FIFO 實現。有回歸測試。GAS getHoldingsFromUserData 也已同步認「配股」加股數。
+- **融資追繳 Email 預警**：GAS checkMarginCall()——每日 updateClosePrices 後，用最新收盤總市值÷marginBalance 算整戶維持率，<140% 寄 MailApp 信（同日不重複；回到門檻以上重置）。選單「測試融資警示信」可試寄。**需使用者重貼 GAS + 存檔**（觸發器跑編輯器碼，免重新部署 Web App）。
+
 ## 4. 接下來的開發目標
-- 除權息日曆、目標價達標 Email 通知(GAS 觸發器)、買賣點疊在個股 K 線
+- 個股迷你走勢 sparkline / 風險報酬散布圖（**需 GAS 開始逐檔記每日收盤到新分頁**才有歷史，目前只有總市值/0050 歷史）
+- 二代健保補充費 & 股利所得課稅試算、券商庫存對帳快照
+- 目標價達標 Email 通知(GAS 觸發器)、買賣點疊在個股 K 線
 - 股息：使用者決定**從現在起才記**(不補歷史)；融資利息領到時記「費用」現金交易
 - GAS 每日快照備份(user_data → backup 分頁，滾動保留 30 天) — **GAS 碼已寫好，待使用者重新部署**
 - (討論中)GAS Web App 加金鑰保護資料安全
@@ -47,4 +56,5 @@
 - `dailyReturnSeries()` 共用日報酬序列(風險/回撤/日曆共用)
 - `renderPerfCard()` 績效卡+大盤比較、`renderRiskCard()`、`renderTxAnalysis()`(交易分析各卡)
 - `saveToCloud()`/`loadFromCloud()` 雲端同步、`WEB_APP_URL` 常數
-- 雲端同步欄位：trades/banks/debts/bizProjects/bizIncome/cashflows/mvHistory/nwHistory/cashSettings/cashTxns/transfers/customNames/priceTargets/sheetsUrl
+- 雲端同步欄位：trades/banks/debts/bizProjects/bizIncome/cashflows/mvHistory/nwHistory/cashSettings/cashTxns/transfers/customNames/priceTargets/**sectors**/**divEvents**/**marginBalance**/sheetsUrl
+  （`marginBalance` 是給 GAS 算融資維持率用；`sectors`={代號:產業}；`divEvents`=除息行事曆陣列）

@@ -17,6 +17,7 @@ function onOpen() {
     .addItem("更新今日收盤價", "updateClosePrices")
     .addItem("檢查 user_data 內容", "debugUserData")
     .addItem("設定每日自動更新", "setupDailyTrigger")
+    .addItem("測試融資警示信", "testMarginCallEmail")
     .addItem("回補歷史市值（一次性）", "backfillHistory")
     .addItem("回補大盤 0050（一次性）", "backfillBenchmark")
     .addSeparator()
@@ -70,6 +71,7 @@ function getHoldingsFromUserData() {
     var sym = t[1], action = t[2], qty = Number(t[3]) || 0;
     if (!qtyMap[sym]) qtyMap[sym] = 0;
     if (action === "買進") qtyMap[sym] += qty;
+    else if (action === "配股") qtyMap[sym] += qty;   // 股票股利：零成本股，增加持股
     else if (action === "賣出") qtyMap[sym] -= qty;
   });
   var holdings = [];
@@ -314,6 +316,7 @@ function updateClosePrices() {
     if (r2 && r2.price) totalMV += h.qty * r2.price;
   });
   if (totalMV > 0) recordHistory(maxDataDate || dateOnly, Math.round(totalMV));   // 記在實際交易日，假日執行不再多出假日點
+  try { checkMarginCall(totalMV); } catch (e) { Logger.log("[追繳檢查] 失敗：" + e.message); }   // 融資維持率預警（不擋更新）
   updateBenchmark(di);   // 順便更新大盤 0050（+1 次 API）
 
   var elapsed = ((new Date().getTime() - startTime) / 1000).toFixed(1);
@@ -334,6 +337,64 @@ function updateClosePrices() {
     blocked: badSyms,
     prices: results
   };
+}
+
+// ══════════════════════════════════════════════════════════
+// 融資維持率追繳預警（每日盤後自動檢查，跌破門檻寄 Email）
+// ── 整戶維持率 = 總市值 ÷ 融資餘額 × 100%。台股整戶追繳線約 130%，
+//    這裡預設 140% 就先預警，留 T+2 補繳緩衝。要改門檻改下面這個數字即可。
+// ── 融資餘額(marginBalance) 由網頁端 App 算好存進 user_data（與股價無關，
+//    只在你新增/刪除交易時變動），GAS 用最新收盤價算總市值後相除得到即時維持率。
+// ── 防轟炸：同一天最多寄一封；維持率回到門檻以上會清除記錄，下次再跌破可再寄。
+// ══════════════════════════════════════════════════════════
+var MARGIN_CALL_THRESHOLD = 140;   // 低於此維持率(%)就寄預警信
+
+function checkMarginCall(totalMV) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var udSheet = ss.getSheetByName("user_data");
+  if (!udSheet) return;
+  var raw = udSheet.getRange("B2").getValue();
+  if (!raw) return;
+  var data;
+  try { data = JSON.parse(raw); } catch (e) { return; }
+  var marginBalance = Number(data.marginBalance) || 0;
+  if (marginBalance <= 0) return;          // 沒融資 → 不用檢查
+  if (!(totalMV > 0)) return;
+
+  var ratio = totalMV / marginBalance * 100;
+  var props = PropertiesService.getScriptProperties();
+  var todayStr = getDateInfo().yyyymmdd;
+
+  if (ratio < MARGIN_CALL_THRESHOLD) {
+    if (props.getProperty("MARGIN_LAST_ALERT_DATE") === todayStr) return;   // 今天已寄過
+    var email = "";
+    try { email = Session.getEffectiveUser().getEmail(); } catch (e) {}
+    if (!email) { Logger.log("[追繳檢查] 取不到 Email，跳過"); return; }
+    var nf = function (n) { return Math.round(n).toLocaleString("en-US"); };
+    var subject = "⚠️ 融資維持率警示 " + ratio.toFixed(0) + "%（追繳線約130%）";
+    var body =
+        "你的整戶融資維持率已降到 " + ratio.toFixed(1) + "%\n\n" +
+        "・投資組合總市值：NT$" + nf(totalMV) + "\n" +
+        "・融資餘額（本金）：NT$" + nf(marginBalance) + "\n" +
+        "・預警門檻：" + MARGIN_CALL_THRESHOLD + "%\n\n" +
+        "台股整戶維持率追繳線約 130%，跌破後 T+2 需補繳保證金，否則券商可能斷頭。\n" +
+        "建議儘早補繳保證金、還融資或減碼。\n\n" +
+        "（此信由你的財富管理系統，每日收盤後用最新收盤價自動檢查後發送）";
+    MailApp.sendEmail(email, subject, body);
+    props.setProperty("MARGIN_LAST_ALERT_DATE", todayStr);
+    Logger.log("[追繳檢查] 已寄警示信，維持率 " + ratio.toFixed(1) + "%");
+  } else {
+    props.deleteProperty("MARGIN_LAST_ALERT_DATE");   // 回到安全水位 → 重置，之後再跌破可再寄
+  }
+}
+
+// 手動測試：不管維持率多少都寄一封試寄信，確認 Email 通道正常
+function testMarginCallEmail() {
+  var email = "";
+  try { email = Session.getEffectiveUser().getEmail(); } catch (e) {}
+  if (!email) { safeAlert("⚠️ 取不到你的 Email，無法測試寄信。"); return; }
+  MailApp.sendEmail(email, "✅ 融資警示測試信", "這是一封測試信，代表你的財富管理系統可以正常寄出融資維持率預警。\n寄到：" + email);
+  safeAlert("✅ 已寄一封測試信到：" + email + "\n請到信箱確認收得到。");
 }
 
 // ── 設定每日自動更新（14:45 執行）──
