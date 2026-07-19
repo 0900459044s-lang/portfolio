@@ -813,6 +813,24 @@ td.r{text-align:right}
 <div class="toast" id="toast"></div>
 
 <!-- Trade Modal -->
+<div class="overlay" id="keyModal">
+<div class="modal">
+  <h2>🔒 輸入存取密碼</h2>
+  <p style="color:var(--muted);font-size:13px;line-height:1.7;margin:4px 0 14px">
+    這道密碼保護你的雲端財務資料。請輸入你在 Google Apps Script 設定的那組密碼；
+    這台裝置會記住，之後不用每次輸入。<br>忘記了？打開你的 Apps Script 編輯器，最上面 <code>API_KEY</code> 那行就是。
+  </p>
+  <div class="fg"><label>密碼</label>
+    <input type="password" id="keyInput" autocomplete="current-password" placeholder="你的存取密碼"
+           onkeydown="if(event.key==='Enter')submitApiKey()">
+  </div>
+  <div id="keyErr" style="color:var(--red);font-size:13px;display:none;margin-top:6px">❌ 密碼錯誤，請再試一次</div>
+  <div style="margin-top:14px">
+    <button class="btn btn-primary" style="width:100%" onclick="submitApiKey()">進入</button>
+  </div>
+</div>
+</div>
+
 <div class="overlay" id="tradeModal">
 <div class="modal">
   <h2 id="tradeMTitle">📝 新增交易</h2>
@@ -1321,7 +1339,7 @@ function recordMvSnapshot(){
 let benchHistory = JSON.parse(localStorage.getItem('pf_benchmark')||'[]');   // 大盤基準 0050 每日收盤 [{date,c}]
 async function loadMvHistoryFromCloud(){
   try{
-    const r = await fetch(WEB_APP_URL + '?action=history', { cache:'no-store', redirect:'follow' });
+    const r = await fetch(withKey(WEB_APP_URL + '?action=history'), { cache:'no-store', redirect:'follow' });
     const res = await r.json();
     if(res.ok && res.history && res.history.length){
       const serverDates = new Set(res.history.map(d=>d.date));
@@ -1453,7 +1471,7 @@ function seedPricesFromCache(){
 // 叫 GAS 抓盤中即時報價（MIS）並直接套用；回傳 {cnt, intraday, ok}
 async function pullLiveQuotes(){
   try{
-    const r=await fetch(WEB_APP_URL+'?action=live',{cache:'no-store',redirect:'follow'});
+    const r=await fetch(withKey(WEB_APP_URL+'?action=live'),{cache:'no-store',redirect:'follow'});
     const j=await r.json();
     let cnt=0, anyIntraday=false;
     if(j&&j.ok&&j.result&&j.result.prices){
@@ -1525,7 +1543,7 @@ async function refreshEverything(){
 async function pullPricesFromGAS(needSync){
   try{
     if(needSync && typeof saveToCloud==='function') await saveToCloud();
-    const r=await fetch(WEB_APP_URL+'?action=refreshprices',{cache:'no-store',redirect:'follow'});
+    const r=await fetch(withKey(WEB_APP_URL+'?action=refreshprices'),{cache:'no-store',redirect:'follow'});
     const j=await r.json();
     let cnt=0;
     if(j&&j.ok&&j.result&&j.result.prices){
@@ -3779,6 +3797,32 @@ function startEditTrade(idx){
 // ══════════════════════════════════════════
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwFRzN8WcOcp2AhzHZAn5-qdvD8d79hNZdw72Cw8tlX-bJ51RKUMAPdsXRvnMu_Wdrn/exec';
 
+// 存取密碼：使用者在本機輸入一次、存 localStorage（不寫進公開原始碼）；每次呼叫 GAS 都帶上，GAS 端驗證。
+let API_KEY = localStorage.getItem('pf_apikey') || '';
+// 把金鑰接到 GAS 網址（GET 用）；POST 則另外把 key 放進 body
+function withKey(url){ return url + (url.includes('?')?'&':'?') + 'key=' + encodeURIComponent(API_KEY); }
+// GAS 回傳未授權 → 清掉本機錯的密碼、跳出輸入框重新要求
+function onUnauthorized(){
+  localStorage.removeItem('pf_apikey'); API_KEY='';
+  showSyncStatus('🔒 需要存取密碼', 'var(--orange)');
+  openKeyModal(true);
+}
+function openKeyModal(isErr){
+  const m=document.getElementById('keyModal'); if(!m) return;
+  const err=document.getElementById('keyErr'); if(err) err.style.display=isErr?'block':'none';
+  const inp=document.getElementById('keyInput'); if(inp) inp.value='';
+  m.classList.add('open');
+  setTimeout(()=>{ if(inp) inp.focus(); }, 60);
+}
+function submitApiKey(){
+  const inp=document.getElementById('keyInput');
+  const v=(inp&&inp.value||'').trim();
+  if(!v) return;
+  API_KEY=v; localStorage.setItem('pf_apikey', v);
+  document.getElementById('keyModal').classList.remove('open');
+  bootAfterAuth();
+}
+
 // 從雲端載入資料（含重試＋明顯錯誤提示）
 async function loadFromCloud(silent) {
   try {
@@ -3788,7 +3832,7 @@ async function loadFromCloud(silent) {
     // 重試最多 2 次，因為手機網路較不穩定
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        r = await fetch(WEB_APP_URL + '?action=read', { cache: 'no-store', redirect: 'follow' });
+        r = await fetch(withKey(WEB_APP_URL + '?action=read'), { cache: 'no-store', redirect: 'follow' });
         res = await r.json();
         lastErr = null;
         break;
@@ -3798,6 +3842,8 @@ async function loadFromCloud(silent) {
       }
     }
     if (lastErr) throw lastErr;
+
+    if (res && res.unauthorized) { onUnauthorized(); return; }   // 密碼錯 → 跳輸入框重試，不當一般錯誤
 
     if (res.ok && res.data) {
       const d = res.data;
@@ -3859,7 +3905,7 @@ async function saveToCloud(force) {
     // 衝突偵測：存檔前先確認雲端版本沒有在我載入後被其他裝置改過（force=true 時跳過，例如使用者已選擇覆蓋）
     if(!force && cloudLoadedUpdatedAt!==null){
       try{
-        const chk=await fetch(WEB_APP_URL+'?action=read',{cache:'no-store',redirect:'follow'});
+        const chk=await fetch(withKey(WEB_APP_URL+'?action=read'),{cache:'no-store',redirect:'follow'});
         const cres=await chk.json();
         const cloudUA=(cres&&cres.ok&&cres.data)?(cres.data.updatedAt||''):'';
         if(cloudUA!==cloudLoadedUpdatedAt){
@@ -3877,6 +3923,7 @@ async function saveToCloud(force) {
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
+      key: API_KEY,
       data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers, customNames, priceTargets, sheetsUrl: SHEETS_URL, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
@@ -3884,6 +3931,7 @@ async function saveToCloud(force) {
       body: JSON.stringify(payload)
     });
     const res = await r.json();
+    if (res && res.unauthorized) { onUnauthorized(); return; }   // 密碼錯 → 跳輸入框重試
     if (res.ok) {
       cloudLoadedUpdatedAt = payload.data.updatedAt;   // 我剛把這份寫上雲端 → 更新基準，避免下次自己的存檔誤判成衝突
       showSyncStatus('✅ 已同步雲端', 'var(--green)');
@@ -4282,16 +4330,19 @@ function importBackup(input){
 
 // Boot
 computeAll();renderAll();
-// 優先載入雲端資料（如果有的話）— 失敗時仍會顯示明確錯誤
-loadFromCloud(true).then(() => {
-  loadMvHistoryFromCloud(); // 真實每日市值歷史（非同步，載到後自動重畫走勢圖）
-  if(SHEETS_URL) refreshPrices();
-  else {
-    const st=document.getElementById('priceStatus');
-    st.textContent='⚠️ 尚未設定報價，點此設定';
-    st.style.color='var(--orange)';
-  }
-});
+// 優先載入雲端資料（如果有的話）— 失敗時仍會顯示明確錯誤。先過密碼關卡再載入。
+function bootAfterAuth(){
+  loadFromCloud(true).then(() => {
+    loadMvHistoryFromCloud(); // 真實每日市值歷史（非同步，載到後自動重畫走勢圖）
+    if(SHEETS_URL) refreshPrices();
+    else {
+      const st=document.getElementById('priceStatus');
+      st.textContent='⚠️ 尚未設定報價，點此設定';
+      st.style.color='var(--orange)';
+    }
+  });
+}
+if(API_KEY){ bootAfterAuth(); } else { openKeyModal(false); }   // 本機沒存密碼 → 先跳輸入框，輸入後才載入
 if(!SHEETS_URL) document.getElementById('lastUpdate').textContent='載入完成';
 // PWA：註冊 service worker（可安裝、離線可開）
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
