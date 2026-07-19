@@ -19,6 +19,9 @@ function onOpen() {
     .addItem("設定每日自動更新", "setupDailyTrigger")
     .addItem("回補歷史市值（一次性）", "backfillHistory")
     .addItem("回補大盤 0050（一次性）", "backfillBenchmark")
+    .addSeparator()
+    .addItem("立即備份 user_data", "snapshotUserData")
+    .addItem("還原備份…", "restoreUserDataFromBackup")
     .addToUi();
 }
 
@@ -186,6 +189,8 @@ function fetchOtcClose(sym, di) {
 // ── 主要更新函數 ──
 function updateClosePrices() {
   var startTime = new Date().getTime();
+  // 每日盤後順手備份一份 user_data 快照（滾動保留 30 天）。包在 try 裡，備份失敗絕不擋更新股價。
+  try { snapshotUserData(); } catch (e) { Logger.log("[備份] snapshotUserData 失敗：" + e.message); }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName("prices") || ss.insertSheet("prices");
   var holdings = getHoldingsFromUserData();
@@ -354,6 +359,80 @@ function setupDailyTrigger() {
 
   // 立即執行一次
   updateClosePrices();
+}
+
+// ══════════════════════════════════════════════
+// user_data 每日快照備份（防單一 B2 儲存格寫壞導致全毀）
+// 快照存到隱藏分頁 user_data_backup，每列＝[備份時間, 當時的 B2 JSON]，
+// 滾動保留最近 BACKUP_KEEP 筆。每日觸發器(updateClosePrices)會自動呼叫；
+// 內容跟上一筆完全一樣就不重複存，所以正常約一天一筆 ≈ 保留 30 天。
+// ══════════════════════════════════════════════
+var BACKUP_SHEET = "user_data_backup";
+var BACKUP_KEEP = 30;
+
+function getBackupSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(BACKUP_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(BACKUP_SHEET);
+    sh.getRange("A1").setValue("備份時間");
+    sh.getRange("B1").setValue("user_data JSON 快照");
+    sh.setFrozenRows(1);
+    try { sh.hideSheet(); } catch (e) {}   // 隱藏，避免誤觸；還原時用選單即可
+  }
+  return sh;
+}
+
+function snapshotUserData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ud = ss.getSheetByName("user_data");
+  if (!ud) return;
+  var raw = ud.getRange("B2").getValue();
+  if (!raw) return;                       // 沒資料就不備份（避免用空白蓋掉歷史快照）
+  raw = String(raw);
+  if (raw.length < 2) return;
+  var sh = getBackupSheet();
+  var last = sh.getLastRow();
+  if (last >= 2) {
+    var prev = String(sh.getRange(last, 2).getValue());
+    if (prev === raw) return;             // 內容和上一筆完全一樣 → 不重複存
+  }
+  var stamp = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+  sh.appendRow([stamp, raw]);
+  // 滾動保留：只留最近 BACKUP_KEEP 筆（第 1 列是表頭），多的從最舊(第 2 列)刪
+  var excess = sh.getLastRow() - 1 - BACKUP_KEEP;
+  if (excess > 0) sh.deleteRows(2, excess);
+  Logger.log("[備份] 已存快照 " + stamp + "，目前保留 " + (sh.getLastRow() - 1) + " 筆");
+}
+
+// 從備份還原（選單觸發）。還原前會先自動備份目前這份，所以還原本身也可再還原回來。
+function restoreUserDataFromBackup() {
+  var ui = SpreadsheetApp.getUi();
+  var sh = getBackupSheet();
+  var last = sh.getLastRow();
+  if (last < 2) { ui.alert("目前沒有任何備份快照。"); return; }
+  var total = last - 1;
+  var resp = ui.prompt(
+    "還原 user_data 備份",
+    "要還原第幾新的備份？（1＝最新，2＝前一個…最多 " + total + "）\n\n" +
+    "⚠️ 會覆蓋目前雲端 user_data。放心：還原前會先自動把「目前這份」也備份起來，可再還原回來。",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var n = parseInt(resp.getResponseText(), 10);
+  if (!(n >= 1 && n <= total)) { ui.alert("輸入無效：請輸入 1～" + total + " 的數字。"); return; }
+  var row = last - (n - 1);               // n=1 → 最後一列（最新）
+  var stamp = sh.getRange(row, 1).getValue();
+  var json = String(sh.getRange(row, 2).getValue());
+  if (ui.alert("確認還原",
+      "將把雲端 user_data 還原成：\n" + stamp + " 的快照。\n\n目前這份會先另存一筆備份。確定？",
+      ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  try { snapshotUserData(); } catch (e) {}   // 先保住現況
+  var ud = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("user_data");
+  ud.getRange("A2").setValue(
+    new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }) + "（還原自 " + stamp + "）");
+  ud.getRange("B2").setValue(json);
+  ui.alert("✅ 已還原成 " + stamp + " 的版本。\n\n請到 App 按『從雲端載入』看結果。");
 }
 
 // ══════════════════════════════════════════════
