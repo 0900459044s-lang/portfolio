@@ -4157,12 +4157,32 @@ function renderXIRR(){
   const el=document.getElementById('sk-xirr');
   if(!el) return;
   const flows=[];
-  trades.forEach(t=>{
+  // FIFO 追蹤每筆賣出實際償還的融資本金：融資買進時券商墊款（不算流出），賣出時要先還券商，
+  // 所以賣出現金流入必須扣掉「賣掉那些批次對應的融資本金」，否則融資來回單會把借款當報酬灌水（XIRR 爆高）。
+  const sortedTx=[...trades].sort((a,b)=>String(a[0]).localeCompare(String(b[0])) || ((a[2]==='買進'?0:1)-(b[2]==='買進'?0:1)));
+  const inv={};
+  sortedTx.forEach(t=>{
     const [date, sym, action, qty, price, fee, tax, margin]=t;
+    const q=Number(qty), p=Number(price);
+    if(!(q>0)||!(p>0)) return;   // 與 computeAll 一致：略過壞資料，避免 NaN/Infinity
+    const f=Number(fee)||0, tx=Number(tax)||0, mg=Number(margin)||0;
     const d=new Date(date.replace(/\//g,'-'));
-    const q=Number(qty), p=Number(price), f=Number(fee)||0, tx=Number(tax)||0, mg=Number(margin)||0;
-    if(action==='買進') flows.push({date:d, amount:-(q*p - mg + f)});   // 融資買進實際流出只有自備款（券商墊 mg）
-    else if(action==='賣出') flows.push({date:d, amount:q*p-f-tx});
+    if(!inv[sym]) inv[sym]=[];
+    if(action==='買進'){
+      inv[sym].push({qty:q, mps:mg/q});                          // mps＝每股融資
+      flows.push({date:d, amount:-(q*p - mg + f)});              // 出：自備款（券商墊 mg）
+    }else if(action==='賣出'){
+      let rem=q, marginRepaid=0; const newLots=[];
+      for(const lot of inv[sym]){
+        if(rem<=0){ newLots.push(lot); continue; }
+        const use=Math.min(rem, lot.qty);
+        marginRepaid += use*(lot.mps||0);                        // 這批賣出償還的融資本金
+        rem-=use;
+        if(lot.qty-use>0) newLots.push({qty:lot.qty-use, mps:lot.mps||0});
+      }
+      inv[sym]=newLots;
+      flows.push({date:d, amount:q*p - f - tx - marginRepaid});  // 入：賣出淨收入再扣還給券商的融資本金
+    }
   });
   // 股息＝現金流入，計入年化報酬（含息總報酬，與 Yahoo 同口徑）
   cashTxns.forEach(c=>{ if(c.type==='dividend'&&(Number(c.amount)||0)>0) flows.push({date:new Date(c.date.replace(/\//g,'-')), amount:+c.amount}); });
