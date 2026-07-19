@@ -3821,9 +3821,11 @@ async function loadFromCloud(silent) {
       }
       computeAll();
       renderAll();
+      cloudLoadedUpdatedAt = res.data.updatedAt || '';   // 記住本機這份是根據哪個雲端版本，供存檔前衝突偵測
       showSyncStatus('✅ 已同步（' + (res.data.updatedAt || '—') + '）', 'var(--green)');
       if (!silent) showToast('✅ 雲端資料載入完成（' + trades.length + ' 筆交易）');
     } else {
+      cloudLoadedUpdatedAt = '';   // 雲端目前沒資料 → 基準設空字串，首次存檔不會誤判成衝突
       showSyncStatus('☁️ 尚無雲端資料', 'var(--muted)');
       if (!silent) showToast('☁️ 雲端目前沒有資料，可能尚未從其他裝置同步過');
     }
@@ -3844,12 +3846,34 @@ async function loadFromCloud(silent) {
 // 開機競態防護：首次雲端載入尚未 settle 前，不把本地/種子資料推上去（否則慢網路下可能覆蓋雲端真資料）；
 // 這段期間的存檔先記 pending，載入完成後補送一次。
 let cloudReady=false, pendingCloudSave=false;
+// 衝突偵測基準：記住「本機這份資料是根據雲端哪個版本(updatedAt)長出來的」。
+// null＝還沒載過雲端(不做衝突檢查)；''＝雲端當時沒資料。存檔前拿雲端最新 updatedAt 跟這個比，
+// 不一致代表另一台裝置在我載入後又改過 → 跳確認，避免手機/桌面互相靜默覆蓋。
+let cloudLoadedUpdatedAt=null;
 // 輕量防抖：短時間多次存檔合併成一次，減少對 GAS 的呼叫（await 版仍直接呼叫 saveToCloud，不受影響）
 let _cloudSaveTimer=null;
 function scheduleCloudSave(){ clearTimeout(_cloudSaveTimer); _cloudSaveTimer=setTimeout(()=>{ _cloudSaveTimer=null; saveToCloud(); }, 600); }
-async function saveToCloud() {
+async function saveToCloud(force) {
   if(!cloudReady){ pendingCloudSave=true; return; }   // 雲端還沒載完，先排隊
   try {
+    // 衝突偵測：存檔前先確認雲端版本沒有在我載入後被其他裝置改過（force=true 時跳過，例如使用者已選擇覆蓋）
+    if(!force && cloudLoadedUpdatedAt!==null){
+      try{
+        const chk=await fetch(WEB_APP_URL+'?action=read',{cache:'no-store',redirect:'follow'});
+        const cres=await chk.json();
+        const cloudUA=(cres&&cres.ok&&cres.data)?(cres.data.updatedAt||''):'';
+        if(cloudUA!==cloudLoadedUpdatedAt){
+          const ok=confirm('⚠️ 偵測到雲端資料已被其他裝置更新\n\n雲端最新版本：'+(cloudUA||'（無）')+'\n你目前這份是根據：'+(cloudLoadedUpdatedAt||'（空）')+'\n\n按「確定」＝用你目前這份覆蓋雲端（對方那次的改動會不見）\n按「取消」＝放棄儲存，改從雲端載入最新版');
+          if(!ok){
+            showSyncStatus('↩️ 已取消存檔，載入雲端最新版…','var(--yellow)');
+            await loadFromCloud(false);
+            return;
+          }
+          // 使用者選擇覆蓋 → 更新基準為雲端當前值，接下去正常寫入
+          cloudLoadedUpdatedAt=cloudUA;
+        }
+      }catch(e){ console.warn('衝突檢查失敗，照常存檔（不擋使用者）', e); }
+    }
     showSyncStatus('⏳ 儲存到雲端...', 'var(--yellow)');
     const payload = {
       action: 'write',
@@ -3861,6 +3885,7 @@ async function saveToCloud() {
     });
     const res = await r.json();
     if (res.ok) {
+      cloudLoadedUpdatedAt = payload.data.updatedAt;   // 我剛把這份寫上雲端 → 更新基準，避免下次自己的存檔誤判成衝突
       showSyncStatus('✅ 已同步雲端', 'var(--green)');
       showToast('✅ 已同步到雲端，其他裝置可立即看到');
     } else {
@@ -4246,9 +4271,10 @@ function importBackup(input){
     if(d.transfers) transfers=d.transfers;
     if(d.customNames){ customNames=d.customNames; localStorage.setItem('pf_customnames',JSON.stringify(customNames)); }
     if(d.priceTargets){ priceTargets=d.priceTargets; localStorage.setItem('pf_pricetargets',JSON.stringify(priceTargets)); }
-    saveAll();
+    _origSaveAll();       // 只寫本機（不走防抖雲端存檔，改用下面的強制覆蓋，避免雙重寫入）
     computeAll();
     renderAll();
+    saveToCloud(true);    // 使用者已在上方確認「覆蓋雲端」→ 強制覆蓋、不再跳衝突提示
     showToast('📥 備份還原完成，已同步雲端');
   };
   reader.readAsText(file);
