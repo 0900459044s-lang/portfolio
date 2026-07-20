@@ -1484,9 +1484,9 @@ function priceGuard(sym,price){
 }
 function parseCSV(line){const r=[];let c='',q=false;for(const ch of line){if(ch==='"'){q=!q;}else if(ch===','&&!q){r.push(c);c='';}else{c+=ch;}}r.push(c);return r;}
 
-async let lastCsvTradeDate='';   // 報價表(CSV)裡最新的「交易日」，用來判斷是不是今天的價
+let lastCsvTradeDate='';   // 報價表(CSV)裡最新的「交易日」，用來判斷是不是今天的價
 function todayTaipeiSlash(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}).replace(/-/g,'/');}  // 2026/07/20
-function refreshPrices(){
+async function refreshPrices(){
   const st=document.getElementById('priceStatus'),up=document.getElementById('lastUpdate');
   if(!SHEETS_URL){st.textContent='⚠️ 尚未設定報價，點此設定';st.style.color='var(--orange)';return;}
   st.textContent='⏳ 股價更新中...';st.style.color='var(--yellow)';
