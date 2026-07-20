@@ -226,6 +226,22 @@ test('renderXIRR 融資來回單（回歸）：借款不得被當報酬灌水', 
   near(val, 25.0, 0.3, '融資來回單 XIRR 應 ≈+25%，不是把借款當獲利的爆高值（'+txt+'）');
 });
 
+test('renderXIRR：壞日期的股息不得讓 XIRR 爆成 +1000%／天數 NaN', function(){
+  // 買1000@100 → 一年後賣1000@110，全平倉 ⇒ 乾淨的 -100000/+110000 ≈ +10%。
+  // 另塞一筆「日期空白」的股息：修好後應被濾掉；若沒濾 → Invalid Date 讓 t0=NaN、二分頂到上限 → 假 +1000% 且天數 NaN。
+  trades=[
+    ['2024/01/01','9999','買進',1000,100,0,0,0],
+    ['2025/01/01','9999','賣出',1000,110,0,0,0],
+  ];
+  cashTxns=[{type:'dividend',date:'',amount:5000}];   // ← 壞日期股息
+  computeAll();
+  renderXIRR();
+  var txt=_dom['sk-xirr'].textContent, val=parseFloat(txt);
+  assert(!isNaN(val), 'sk-xirr 應為百分比，實得「'+txt+'」');
+  near(val, 10.0, 0.5, '壞日期股息應被濾掉、XIRR≈+10%，而非爆高的 +1000%（'+txt+'）');
+  assert(_dom['sk-xirr-sub'].textContent.indexOf('NaN')===-1, '投資天數不得為 NaN，實得「'+_dom['sk-xirr-sub'].textContent+'」');
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 say('');
 say('═══════════════════════════════════════');

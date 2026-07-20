@@ -1484,7 +1484,9 @@ function priceGuard(sym,price){
 }
 function parseCSV(line){const r=[];let c='',q=false;for(const ch of line){if(ch==='"'){q=!q;}else if(ch===','&&!q){r.push(c);c='';}else{c+=ch;}}r.push(c);return r;}
 
-async function refreshPrices(){
+async let lastCsvTradeDate='';   // 報價表(CSV)裡最新的「交易日」，用來判斷是不是今天的價
+function todayTaipeiSlash(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'}).replace(/-/g,'/');}  // 2026/07/20
+function refreshPrices(){
   const st=document.getElementById('priceStatus'),up=document.getElementById('lastUpdate');
   if(!SHEETS_URL){st.textContent='⚠️ 尚未設定報價，點此設定';st.style.color='var(--orange)';return;}
   st.textContent='⏳ 股價更新中...';st.style.color='var(--yellow)';
@@ -1494,7 +1496,7 @@ async function refreshPrices(){
     const r=await fetch(url,{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status);
     const text=await r.text();
-    let cnt=0;const blocked=[];
+    let cnt=0,lastSeen='';const blocked=[];
     for(const line of text.trim().split('\n')){
       const cols=parseCSV(line);
       const sym=(cols[0]||'').trim().replace(/"/g,'');
@@ -1503,11 +1505,18 @@ async function refreshPrices(){
       if(holdings[sym]&&price>0){
         if(!priceGuard(sym,price)){blocked.push(getName(sym)||getCode(sym));continue;}   // 壞資料不套用
         holdings[sym].currentPrice=price;if(prev>0)holdings[sym].prevClose=prev;cnt++;
+        const td=(cols[7]||'').trim().replace(/"/g,'');   // H欄=交易日(實際資料日)；zero-pad 的 yyyy/mm/dd 可直接字串比大小
+        if(td&&td>lastSeen)lastSeen=td;
       }
     }
+    lastCsvTradeDate=lastSeen;
     const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
     if(cnt>0){st.textContent=`📈 股價已更新 ${t}（${cnt} 檔）`;st.style.color='var(--green)';up.textContent='股價更新於 '+t+'，每 5 分鐘自動更新';}
     else{st.textContent='⚠️ 報價表沒有對到持股，點此檢查';st.style.color='var(--orange)';}
+    // 報價表停在舊交易日 → 別再用綠色「已更新」騙人（按🔄更新會自動叫 GAS 補抓當日）
+    if(cnt>0&&lastSeen&&lastSeen!==todayTaipeiSlash()){
+      st.textContent=`⚠️ 報價停在 ${lastSeen}（非今日）；按🔄更新或去 Google Sheets 跑「更新今日收盤價」`;st.style.color='var(--orange)';
+    }
     if(blocked.length){st.textContent+=`；🛡️ ${blocked.join('、')} 報價異常已擋下`;st.style.color='var(--orange)';showToast(`🛡️ ${blocked.join('、')} 的報價跳動超過±45%，疑似壞資料已擋下（去 Google Sheets 重跑「更新今日收盤價」修正；若為除權息等真實變動，下次更新會自動接受）`,6000);}
   }catch(e){st.textContent='❌ 報價連線失敗，點此檢查設定';st.style.color='var(--red)';}
   renderAll();
@@ -1570,7 +1579,8 @@ async function refreshEverything(){
       // 盤後/假日：直接抓今日收盤價（先讀已發佈 CSV，缺的再叫 GAS 現抓；不碰 MIS 免抓到開盤價）
       if(SHEETS_URL) await refreshPrices();
       const missing=Object.values(holdings).filter(h=>!(h.currentPrice>0));
-      if(missing.length) await pullPricesFromGAS(false);
+      const stale=lastCsvTradeDate&&lastCsvTradeDate!==todayTaipeiSlash();  // 報價表停在舊交易日（如自動排程今天沒跑）
+      if(missing.length||stale) await pullPricesFromGAS(false);             // 叫 GAS 現抓今日收盤（假日會回最近交易日、同值無害）
     }
     const total=Object.values(holdings).length;
     const withPrice=Object.values(holdings).filter(h=>h.currentPrice>0).length;
@@ -4469,12 +4479,14 @@ function renderNetWorthChart(){
 // ══════════════════════════════════════════
 function computeXIRR(flows){
   // flows: [{date: Date, amount: number}]，至少一負一正
+  flows=(flows||[]).filter(f=>f&&f.date&&!isNaN(f.date.getTime()));  // 丟掉日期壞掉的流：一筆 Invalid Date 會讓 t0=NaN、二分逼近頂到上限變假 +1000%
   if(flows.length<2) return null;
   const t0=flows[0].date.getTime();
   const years=f=>(f.date.getTime()-t0)/(365.25*24*3600*1000);
   const npv=r=>flows.reduce((s,f)=>s+f.amount/Math.pow(1+r,years(f)),0);
   let lo=-0.99, hi=10;
-  if(npv(lo)*npv(hi)>0) return null; // 無解
+  const nlo=npv(lo), nhi=npv(hi);
+  if(!isFinite(nlo)||!isFinite(nhi)||nlo*nhi>0) return null; // 無解、或含壞值算出 NaN
   for(let i=0;i<100;i++){
     const mid=(lo+hi)/2;
     if(npv(lo)*npv(mid)<=0) hi=mid; else lo=mid;
@@ -4495,7 +4507,8 @@ function renderXIRR(){
     const q=Number(qty), p=Number(price);
     if(!(q>0)||!(p>0)) return;   // 與 computeAll 一致：略過壞資料，避免 NaN/Infinity
     const f=Number(fee)||0, tx=Number(tax)||0, mg=Number(margin)||0;
-    const d=new Date(date.replace(/\//g,'-'));
+    const d=new Date(String(date||'').replace(/\//g,'-'));
+    if(isNaN(d.getTime())) return;   // 日期空白/格式壞的交易略過，與略過壞 qty/price 一致，免污染 XIRR
     if(!inv[sym]) inv[sym]=[];
     if(action==='買進'){
       inv[sym].push({qty:q, mps:mg/q});                          // mps＝每股融資
@@ -4514,7 +4527,7 @@ function renderXIRR(){
     }
   });
   // 股息＝現金流入，計入年化報酬（含息總報酬，與 Yahoo 同口徑）
-  cashTxns.forEach(c=>{ if(c.type==='dividend'&&(Number(c.amount)||0)>0) flows.push({date:new Date(c.date.replace(/\//g,'-')), amount:+c.amount}); });
+  cashTxns.forEach(c=>{ if(c.type==='dividend'&&(Number(c.amount)||0)>0){ const dd=new Date(String(c.date||'').replace(/\//g,'-')); if(!isNaN(dd.getTime())) flows.push({date:dd, amount:+c.amount}); } });
   const mv=Object.values(holdings).reduce((s,h)=>s+h.qty*(h.currentPrice||h.prevClose||h.avgCost),0);  // 補昨收 fallback，與績效卡/持股表一致
   const equity=mv-marginBalance;   // 期末權益＝毛市值−未償融資餘額（融資是負債）
   if(equity>0) flows.push({date:new Date(), amount:equity});
@@ -4526,7 +4539,7 @@ function renderXIRR(){
   const sub=document.getElementById('sk-xirr-sub');
   if(sub){
     const days=(flows[flows.length-1].date-flows[0].date)/(24*3600*1000);
-    sub.textContent='投資 '+Math.round(days)+' 天（含現金流時間權重）';
+    sub.textContent = isFinite(days) ? '投資 '+Math.round(days)+' 天（含現金流時間權重）' : '';
   }
 }
 
