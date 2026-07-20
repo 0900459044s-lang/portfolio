@@ -688,6 +688,16 @@ td.r{text-align:right}
   <div id="sk-analysis" style="display:none">
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px" id="analysisGrid"></div>
   </div>
+
+  <!-- ══ 交易日誌 ══ -->
+  <div class="card" style="margin-top:14px;padding:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div class="chart-title" style="margin-bottom:0">📔 交易日誌</div>
+      <button class="btn btn-primary" style="padding:6px 12px;font-size:12px" onclick="openJournalModal()">＋ 新增日誌</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">記錄每次交易的想法、計畫與檢討 — 綁定成交筆後自動帶出已實現損益</div>
+    <div id="journalList"></div>
+  </div>
 </div>
 
 <!-- ══ 銀行頁 ══ -->
@@ -898,6 +908,53 @@ td.r{text-align:right}
   <div class="mfooter">
     <button class="btn btn-secondary" onclick="closeModals()">取消</button>
     <button class="btn btn-primary" onclick="saveTrade()">儲存</button>
+  </div>
+</div>
+</div>
+
+<!-- Journal Modal -->
+<div class="overlay" id="journalModal">
+<div class="modal" style="max-width:520px">
+  <h2 id="jMTitle">📔 新增交易日誌</h2>
+  <input type="hidden" id="jId">
+  <div class="fg-row">
+    <div class="fg"><label>進場日期</label><input type="date" id="jDate"></div>
+    <div class="fg"><label>綁定個股</label><select id="jSym" onchange="renderJournalTradePicker()"></select></div>
+  </div>
+  <div class="fg">
+    <label>策略標籤 <span style="color:var(--muted);font-weight:400">（可多選）</span></label>
+    <div id="jTags" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>
+  <div class="fg"><label>進場理由</label><textarea id="jThesis" rows="2" placeholder="為什麼買？訊號、型態、基本面、消息…" style="width:100%;resize:vertical"></textarea></div>
+  <div class="fg-row">
+    <div class="fg"><label>目標價</label><input type="number" id="jTarget" step="0.01" min="0" placeholder="選填"></div>
+    <div class="fg"><label>停損價</label><input type="number" id="jStop" step="0.01" min="0" placeholder="選填"></div>
+  </div>
+  <div class="fg-row">
+    <div class="fg"><label>進場情緒</label>
+      <select id="jEmotion"><option value="冷靜">冷靜</option><option value="自信">自信</option><option value="貪婪">貪婪</option><option value="恐懼">恐懼</option><option value="FOMO">FOMO</option><option value="猶豫">猶豫</option></select>
+    </div>
+    <div class="fg"><label>信心（1–5）</label>
+      <select id="jConfidence"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select>
+    </div>
+  </div>
+  <div class="fg"><label>出場檢討 <span style="color:var(--muted);font-weight:400">（賣出後再補）</span></label><textarea id="jExit" rows="2" placeholder="有沒有照計畫？學到什麼？下次怎麼改進…" style="width:100%;resize:vertical"></textarea></div>
+  <div class="fg-row">
+    <div class="fg"><label>有無照計畫</label>
+      <select id="jFollowed"><option value="">—</option><option value="yes">✓ 有照計畫</option><option value="no">✗ 沒照計畫</option></select>
+    </div>
+    <div class="fg"><label>執行評分 <span style="color:var(--muted);font-weight:400">（紀律，非盈虧）</span></label>
+      <select id="jRating"><option value="1">★☆☆☆☆</option><option value="2">★★☆☆☆</option><option value="3" selected>★★★☆☆</option><option value="4">★★★★☆</option><option value="5">★★★★★</option></select>
+    </div>
+  </div>
+  <div class="fg">
+    <label>綁定成交筆 <span style="color:var(--muted);font-weight:400">（勾選這次交易對應的成交，自動帶出損益）</span></label>
+    <div id="jTradePicker" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--s2)"></div>
+  </div>
+  <div class="mfooter">
+    <button class="btn btn-danger" id="jDeleteBtn" style="margin-right:auto;display:none" onclick="deleteJournalEntry()">刪除</button>
+    <button class="btn btn-secondary" onclick="closeModals()">取消</button>
+    <button class="btn btn-primary" onclick="saveJournalEntry()">儲存</button>
   </div>
 </div>
 </div>
@@ -1299,6 +1356,7 @@ const INIT_TRADES=[
 ];
 
 let trades=JSON.parse(localStorage.getItem('pf_trades_v3')||'null')||[...INIT_TRADES];
+let journal=JSON.parse(localStorage.getItem('pf_journal')||'[]'); // 交易日誌 [{id,created,date,sym,tags[],thesis,target,stop,emotion,confidence,exitReview,followedPlan,rating,links[]}]，links 為成交指紋「日期|買賣|股數|價格」
 let banks=JSON.parse(localStorage.getItem('pf_banks')||'[]');
 let debts=JSON.parse(localStorage.getItem('pf_debts')||'[]');
 let bizProjects=JSON.parse(localStorage.getItem('pf_biz')||'[]');
@@ -1325,6 +1383,7 @@ let perfRange='1m';
 
 function saveAll(){
   localStorage.setItem('pf_trades_v3',JSON.stringify(trades));
+  localStorage.setItem('pf_journal',JSON.stringify(journal));
   localStorage.setItem('pf_banks',JSON.stringify(banks));
   localStorage.setItem('pf_debts',JSON.stringify(debts));
   localStorage.setItem('pf_biz',JSON.stringify(bizProjects));
@@ -1649,7 +1708,7 @@ setInterval(()=>{
 // ══════════════════════════════════════════
 // Render All
 // ══════════════════════════════════════════
-function renderAll(){renderOverview();renderStocks();renderBank();renderDebt();renderBiz();renderCashflow();renderHealthScore();renderDiversification();renderCashflowForecast();renderTransferList();renderXIRR();}
+function renderAll(){renderOverview();renderStocks();renderBank();renderDebt();renderBiz();renderCashflow();renderHealthScore();renderDiversification();renderCashflowForecast();renderTransferList();renderXIRR();renderJournal();}
 
 // ── Overview ──
 function renderOverview(){
@@ -3931,6 +3990,7 @@ async function loadFromCloud(silent) {
     if (res.ok && res.data) {
       const d = res.data;
       if (d.trades)      { trades      = d.trades;      localStorage.setItem('pf_trades_v3', JSON.stringify(trades)); }
+      if (d.journal)     { journal     = d.journal;     localStorage.setItem('pf_journal',    JSON.stringify(journal)); }
       if (d.banks)       { banks       = d.banks;        localStorage.setItem('pf_banks',     JSON.stringify(banks)); }
       if (d.debts)       { debts       = d.debts;        localStorage.setItem('pf_debts',     JSON.stringify(debts)); }
       if (d.bizProjects) { bizProjects = d.bizProjects;  localStorage.setItem('pf_biz',       JSON.stringify(bizProjects)); }
@@ -4009,7 +4069,7 @@ async function saveToCloud(force) {
     const payload = {
       action: 'write',
       key: API_KEY,
-      data: { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers, customNames, priceTargets, sectors, divEvents, marginBalance, sheetsUrl: SHEETS_URL, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
+      data: { trades, journal, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers, customNames, priceTargets, sectors, divEvents, marginBalance, sheetsUrl: SHEETS_URL, updatedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) }
     };
     const r = await fetch(WEB_APP_URL, {
       method: 'POST',
@@ -4547,7 +4607,7 @@ function renderXIRR(){
 // 備份匯出 / 匯入
 // ══════════════════════════════════════════
 function collectAllData(){
-  return { trades, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers,
+  return { trades, journal, banks, debts, bizProjects, bizIncome, cashflows, mvHistory, nwHistory, cashSettings, cashTxns, transfers,
            customNames, priceTargets,
            exportedAt:new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}), version:1 };
 }
@@ -4576,6 +4636,7 @@ function importBackup(input){
     if(!d.trades||!Array.isArray(d.trades)){ alert('❌ 這不是本系統的備份檔'); return; }
     if(!confirm(`確定還原備份？\n備份時間：${d.exportedAt||'未知'}\n交易 ${d.trades.length} 筆\n\n⚠️ 目前的資料會被覆蓋（包含雲端）`)) return;
     trades=d.trades;
+    if(d.journal) journal=d.journal;
     if(d.banks) banks=d.banks;
     if(d.debts) debts=d.debts;
     if(d.bizProjects) bizProjects=d.bizProjects;
@@ -4595,6 +4656,187 @@ function importBackup(input){
     showToast('📥 備份還原完成，已同步雲端');
   };
   reader.readAsText(file);
+}
+
+// ══════════════════════════════════════════
+// 交易日誌（Trading Journal）
+// ══════════════════════════════════════════
+const JOURNAL_TAGS=['波段','當沖','存股','突破','抄底','加碼','減碼','停損','事件'];
+function jEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function jNL(s){return jEsc(s).replace(/\n/g,'<br>');}
+function tKey(t){return `${t[0]}|${t[2]}|${t[3]}|${t[4]}`;}                       // 成交指紋：日期|買賣|股數|價格
+function jStars(n){n=Math.max(0,Math.min(5,Number(n)||0));return '★'.repeat(n)+'☆'.repeat(5-n);}
+
+// 依綁定的成交筆回頭比對 realizedList 加總已實現淨損益；沒綁到賣出則回 null
+function journalRealized(entry){
+  let sum=0,hasSell=false;
+  (entry.links||[]).forEach(k=>{
+    const p=k.split('|'); if(p[1]!=='賣出')return; hasSell=true;
+    const r=realizedList.find(r=>r.sym===entry.sym && r.date===p[0] && r.qty===Number(p[2]) && Math.abs(r.sellPrice-Number(p[3]))<1e-6);
+    if(r)sum+=r.net;
+  });
+  return hasSell?sum:null;
+}
+
+// 交易中出現過的代號（含已清倉），最近日期在前
+function journalSymOptions(){
+  const seen={};
+  (trades||[]).forEach(t=>{ if(!seen[t[1]]||t[0]>seen[t[1]]) seen[t[1]]=t[0]; });
+  return Object.keys(seen).sort((a,b)=>seen[b].localeCompare(seen[a]));
+}
+
+function renderJournal(){
+  const box=document.getElementById('journalList'); if(!box)return;
+  if(!journal.length){
+    box.innerHTML='<div style="text-align:center;padding:26px 10px;color:var(--muted);font-size:12px">尚無日誌 — 點右上「＋ 新增日誌」記下你的第一筆交易想法</div>';
+    return;
+  }
+  const list=[...journal].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created||'').localeCompare(a.created||''));
+  box.innerHTML=list.map(e=>{
+    const code=getCode(e.sym||''),name=e.sym?getName(e.sym):'';
+    const real=journalRealized(e);
+    const tags=(e.tags||[]).map(t=>`<span style="background:rgba(59,130,246,.15);color:var(--blue);font-size:10px;padding:2px 7px;border-radius:6px">${jEsc(t)}</span>`).join('');
+    const mini=(label,val,color)=>`<div style="flex:1;min-width:64px;background:var(--s2);border-radius:8px;padding:7px 9px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">${label}</div><div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:${color||'var(--text)'}">${val}</div></div>`;
+    const realCell=real==null?mini('已實現','—'):mini('已實現',(real>=0?'+':'')+fmt(Math.round(real)),real>=0?'var(--green)':'var(--red)');
+    const plan=e.followedPlan==='yes'?`<span style="background:rgba(34,197,94,.1);color:var(--green);font-size:10px;padding:3px 9px;border-radius:6px">✓ 有照計畫</span>`
+              :e.followedPlan==='no'?`<span style="background:rgba(239,68,68,.1);color:var(--red);font-size:10px;padding:3px 9px;border-radius:6px">✗ 沒照計畫</span>`:'';
+    return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:14px">${jEsc(code)}${name?' '+jEsc(name):''}</span>${tags}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)">${jEsc(e.date||'')}</span>
+          <button class="btn-ghost" style="cursor:pointer" onclick="editJournalEntry('${e.id}')">✏️</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:7px;margin-bottom:11px;flex-wrap:wrap">
+        ${mini('目標價',e.target?fmt2(e.target):'—','var(--green)')}
+        ${mini('停損',e.stop?fmt2(e.stop):'—','var(--red)')}
+        ${realCell}
+        ${mini('情緒',jEsc(e.emotion||'—'))}
+        ${mini('信心',jStars(e.confidence))}
+      </div>
+      ${e.thesis?`<div style="margin-bottom:9px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">進場理由</div><div style="font-size:12px;line-height:1.6;color:#d4d4d8">${jNL(e.thesis)}</div></div>`:''}
+      ${e.exitReview?`<div style="margin-bottom:9px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">出場檢討</div><div style="font-size:12px;line-height:1.6;color:#d4d4d8">${jNL(e.exitReview)}</div></div>`:''}
+      <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:10px;margin-top:4px">
+        <div>${plan}</div>
+        <div style="display:flex;align-items:center;gap:5px"><span style="font-size:10px;color:var(--muted)">執行評分</span><span style="color:#f59e0b;font-size:13px;letter-spacing:1px">${jStars(e.rating)}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderJournalTradePicker(){
+  const sym=document.getElementById('jSym').value;
+  const box=document.getElementById('jTradePicker');
+  const checked=window._jCheckedLinks||[];
+  const rows=(trades||[]).filter(t=>t[1]===sym)
+    .map((t,i)=>({t,k:tKey(t)}))
+    .sort((a,b)=>b.t[0].localeCompare(a.t[0]));
+  if(!rows.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted);padding:4px">此代號尚無成交紀錄</div>'; return; }
+  box.innerHTML=rows.map(({t,k})=>{
+    const on=checked.includes(k)?'checked':'';
+    const col=t[2]==='買進'?'var(--green)':'var(--red)';
+    return `<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12px;cursor:pointer">
+      <input type="checkbox" value="${jEsc(k)}" ${on} style="width:auto;margin:0">
+      <span style="font-family:'JetBrains Mono',monospace;color:var(--muted)">${jEsc(t[0])}</span>
+      <span style="color:${col};font-weight:600">${jEsc(t[2])}</span>
+      <span style="font-family:'JetBrains Mono',monospace">${fmt(t[3])} 股 @ ${fmt2(t[4])}</span>
+    </label>`;
+  }).join('');
+}
+
+function renderJournalTagPicker(selected){
+  const box=document.getElementById('jTags');
+  box.innerHTML=JOURNAL_TAGS.map(t=>{
+    const on=(selected||[]).includes(t);
+    return `<span data-tag="${t}" onclick="this.classList.toggle('on');this.style.background=this.classList.contains('on')?'rgba(59,130,246,.2)':'var(--s2)';this.style.color=this.classList.contains('on')?'var(--blue)':'var(--muted)'" class="${on?'on':''}" style="cursor:pointer;user-select:none;font-size:11px;padding:4px 10px;border-radius:7px;background:${on?'rgba(59,130,246,.2)':'var(--s2)'};color:${on?'var(--blue)':'var(--muted)'}">${t}</span>`;
+  }).join('');
+}
+
+function openJournalModal(){
+  document.getElementById('jMTitle').textContent='📔 新增交易日誌';
+  document.getElementById('jId').value='';
+  document.getElementById('jDeleteBtn').style.display='none';
+  const symSel=document.getElementById('jSym');
+  const opts=journalSymOptions();
+  symSel.innerHTML=opts.map(s=>`<option value="${jEsc(s)}">${jEsc(getCode(s))}${getName(s)?' '+jEsc(getName(s)):''}</option>`).join('')||'<option value="">（尚無交易）</option>';
+  document.getElementById('jDate').value=localDateKey();
+  document.getElementById('jThesis').value='';
+  document.getElementById('jTarget').value='';
+  document.getElementById('jStop').value='';
+  document.getElementById('jEmotion').value='冷靜';
+  document.getElementById('jConfidence').value='3';
+  document.getElementById('jExit').value='';
+  document.getElementById('jFollowed').value='';
+  document.getElementById('jRating').value='3';
+  window._jCheckedLinks=[];
+  renderJournalTagPicker([]);
+  renderJournalTradePicker();
+  document.getElementById('journalModal').classList.add('open');
+}
+
+function editJournalEntry(id){
+  const e=journal.find(x=>x.id===id); if(!e)return;
+  document.getElementById('jMTitle').textContent='📔 編輯交易日誌';
+  document.getElementById('jId').value=e.id;
+  document.getElementById('jDeleteBtn').style.display='';
+  const symSel=document.getElementById('jSym');
+  const opts=journalSymOptions();
+  if(e.sym&&!opts.includes(e.sym))opts.unshift(e.sym);
+  symSel.innerHTML=opts.map(s=>`<option value="${jEsc(s)}">${jEsc(getCode(s))}${getName(s)?' '+jEsc(getName(s)):''}</option>`).join('');
+  symSel.value=e.sym||'';
+  document.getElementById('jDate').value=e.date||'';
+  document.getElementById('jThesis').value=e.thesis||'';
+  document.getElementById('jTarget').value=e.target!=null?e.target:'';
+  document.getElementById('jStop').value=e.stop!=null?e.stop:'';
+  document.getElementById('jEmotion').value=e.emotion||'冷靜';
+  document.getElementById('jConfidence').value=String(e.confidence||3);
+  document.getElementById('jExit').value=e.exitReview||'';
+  document.getElementById('jFollowed').value=e.followedPlan||'';
+  document.getElementById('jRating').value=String(e.rating||3);
+  window._jCheckedLinks=[...(e.links||[])];
+  renderJournalTagPicker(e.tags||[]);
+  renderJournalTradePicker();
+  document.getElementById('journalModal').classList.add('open');
+}
+
+function saveJournalEntry(){
+  const sym=document.getElementById('jSym').value;
+  const links=[...document.querySelectorAll('#jTradePicker input:checked')].map(c=>c.value);
+  const tags=[...document.querySelectorAll('#jTags .on')].map(s=>s.getAttribute('data-tag'));
+  const num=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v;};
+  const id=document.getElementById('jId').value;
+  const entry={
+    id: id || ('j'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)),
+    created: id ? (journal.find(x=>x.id===id)||{}).created || new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}) : new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}),
+    date: document.getElementById('jDate').value,
+    sym, tags,
+    thesis: document.getElementById('jThesis').value.trim(),
+    target: num('jTarget'), stop: num('jStop'),
+    emotion: document.getElementById('jEmotion').value,
+    confidence: Number(document.getElementById('jConfidence').value),
+    exitReview: document.getElementById('jExit').value.trim(),
+    followedPlan: document.getElementById('jFollowed').value,
+    rating: Number(document.getElementById('jRating').value),
+    links
+  };
+  if(!entry.thesis && !entry.exitReview && !entry.links.length){ showToast('⚠️ 至少填進場理由、檢討或綁定成交筆'); return; }
+  if(id){ const i=journal.findIndex(x=>x.id===id); if(i>=0)journal[i]=entry; }
+  else journal.unshift(entry);
+  saveAll(); renderJournal(); closeModals();
+  if(typeof saveToCloud==='function') saveToCloud();
+  showToast('📔 日誌已儲存');
+}
+
+function deleteJournalEntry(){
+  const id=document.getElementById('jId').value; if(!id)return;
+  if(!confirm('確定刪除這筆交易日誌？')) return;
+  journal=journal.filter(x=>x.id!==id);
+  saveAll(); renderJournal(); closeModals();
+  if(typeof saveToCloud==='function') saveToCloud();
+  showToast('🗑️ 已刪除日誌');
 }
 
 // Boot
